@@ -1,0 +1,9 @@
+#Ignore all IDEA Settings
+.idea/**
+*.iml
+
+#Ignore all target files
+*/target/**
+
+#Ignore mdj
+*.mdj
