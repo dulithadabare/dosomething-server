@@ -3,7 +3,7 @@
 *.iml
 
 #Ignore all target files
-*/target/**
+target/**
 
 #Ignore mdj
 *.mdj

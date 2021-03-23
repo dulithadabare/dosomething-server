@@ -39,18 +39,21 @@ CREATE TABLE IF NOT EXISTS event_interested (
 
 CREATE TABLE IF NOT EXISTS confirm_request (
     event_need_id BIGINT NOT NULL,
-    user_id INT NOT NULL
+    user_id INT NOT NULL,
+    PRIMARY KEY (event_need_id, user_id)
 --    code_name VARCHAR(30) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS join_request (
     event_need_id BIGINT NOT NULL,
-    user_id INT NOT NULL
+    user_id INT NOT NULL,
+    PRIMARY KEY (event_need_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS event_participants (
     event_need_id BIGINT NOT NULL,
-    user_id INT NOT NULL
+    user_id INT NOT NULL,
+    PRIMARY KEY (event_need_id, user_id)
 --    code_name VARCHAR(30) NOT NULL
 );
 
