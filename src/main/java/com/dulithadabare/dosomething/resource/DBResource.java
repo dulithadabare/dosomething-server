@@ -5,6 +5,7 @@ import org.springframework.http.HttpEntity;
 
 import java.sql.*;
 import java.sql.Date;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -25,7 +26,17 @@ public class DBResource
 
             // Save to friend's inbox
 
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT IGNORE INTO event_need (user_id , need, start_date, end_date, date_scope, is_confirmed, description) VALUES ( ?, ?, ?, ?, ?, ?, ? )" ) )
+            try ( PreparedStatement ps = conn.prepareStatement( "INSERT IGNORE INTO event_need " +
+                    "(user_id ," +
+                    " verb," +
+                    " noun," +
+                    " start_date," +
+                    " end_date," +
+                    " date_scope," +
+                    " start_time," +
+                    " end_time," +
+                    " time_scope," +
+                    " is_confirmed ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )" ) )
             {
 
                 ps.setFetchSize( 1000 );
@@ -33,12 +44,15 @@ public class DBResource
                 int count = 1;
 
                 ps.setInt( count++, userId );
-                ps.setString( count++, eventNeed.getNeed() );
+                ps.setString( count++, eventNeed.getVerb() );
+                ps.setString( count++, eventNeed.getNoun() );
                 ps.setDate( count++, Date.valueOf( eventNeed.getStartDate() ) );
                 ps.setDate( count++, Date.valueOf( eventNeed.getEndDate() ) );
                 ps.setString( count++, eventNeed.getDateScope() );
+                ps.setTime( count++, Time.valueOf( LocalTime.parse(eventNeed.getStartTime()) ) );
+                ps.setTime( count++, Time.valueOf( LocalTime.parse(eventNeed.getEndTime()) ) );
+                ps.setString( count++, eventNeed.getTimeScope() );
                 ps.setBoolean( count++, eventNeed.isConfirmed() );
-                ps.setString( count++, eventNeed.getDescription() );
 
                 //execute query
                 ps.executeUpdate();
@@ -688,7 +702,20 @@ public class DBResource
         {
             // Get Event Requests
 
-            String sqlSb = "SELECT u.name, en.id, en.user_id, en.need,  en.start_date,  en.end_date,  en.date_scope,  en.is_confirmed, en.description  FROM confirm_request cr, event_need en, user u WHERE cr.user_id = ? AND cr.event_need_id = en.id AND en.user_id = u.id";
+            String sqlSb = "SELECT " +
+                    "u.name, " +
+                    "en.id, " +
+                    "en.user_id, " +
+                    "en.verb,  " +
+                    "en.noun,  " +
+                    "en.start_date,  " +
+                    "en.end_date,  " +
+                    "en.date_scope,  " +
+                    "en.start_time,  " +
+                    "en.end_time,  " +
+                    "en.time_scope,  " +
+                    "en.is_confirmed " +
+                    "FROM confirm_request cr, event_need en, user u WHERE cr.user_id = ? AND cr.event_need_id = en.id AND en.user_id = u.id";
 
             try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
             {
@@ -708,25 +735,9 @@ public class DBResource
                     {
                         int col = 1;
                         String requesterName = rs.getString( col++ );
-                        long eventId = rs.getLong( col++ );
-                        int enUserId = rs.getInt( col++ );
-                        String need = rs.getString( col++ );
-                        Date startDate = rs.getDate( col++ );
-                        Date endDate = rs.getDate( col++ );
-                        String dateScope = rs.getString( col++ );
-                        boolean isConfirmed = rs.getBoolean( col++ );
-                        String description = rs.getString( col++ );
 
                         EventNeed eventNeed = new EventNeed();
-                        eventNeed.setId( eventId );
-                        eventNeed.setUserId( enUserId );
-                        eventNeed.setName( requesterName );
-                        eventNeed.setNeed( need );
-                        eventNeed.setStartDate( startDate.toString() );
-                        eventNeed.setEndDate( endDate.toString() );
-                        eventNeed.setDateScope( dateScope );
-                        eventNeed.setDescription( description );
-                        eventNeed.setConfirmed( isConfirmed );
+                        eventNeed.load( rs );
 
                         UserProfile requesterUserProfile = new UserProfile();
                         requesterUserProfile.setUserId( eventNeed.getUserId() );
@@ -768,7 +779,22 @@ public class DBResource
         {
             // Get Join Requests
 
-            String sqlSb = "SELECT u.id requester_id, u.name requester_name, en.id, en.user_id, en.need,  en.start_date,  en.end_date,  en.date_scope,  en.is_confirmed, en.description  FROM join_request jr, event_need en, user u WHERE en.user_id = ? AND jr.event_need_id = en.id AND jr.user_id = u.id";
+            String sqlSb = "SELECT" +
+                    " u.id requester_id," +
+                    " u.name requester_name," +
+                    " en.id," +
+                    " en.user_id," +
+                    " en.verb," +
+                    " en.noun," +
+                    " en.start_date," +
+                    " en.end_date," +
+                    " en.date_scope," +
+                    " en.start_time," +
+                    " en.end_time," +
+                    " en.time_scope," +
+                    " en.is_confirmed," +
+                    " en.description" +
+                    "  FROM join_request jr, event_need en, user u WHERE en.user_id = ? AND jr.event_need_id = en.id AND jr.user_id = u.id";
 
             try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
             {
@@ -789,25 +815,9 @@ public class DBResource
                         int col = 1;
                         int requesterId = rs.getInt( col++ );
                         String requesterName = rs.getString( col++ );
-                        long eventId = rs.getLong( col++ );
-                        int enUserId = rs.getInt( col++ );
-                        String need = rs.getString( col++ );
-                        Date startDate = rs.getDate( col++ );
-                        Date endDate = rs.getDate( col++ );
-                        String dateScope = rs.getString( col++ );
-                        boolean isConfirmed = rs.getBoolean( col++ );
-                        String description = rs.getString( col++ );
 
                         EventNeed eventNeed = new EventNeed();
-                        eventNeed.setId( eventId );
-                        eventNeed.setUserId( enUserId );
-                        eventNeed.setNeed( requesterName );
-                        eventNeed.setNeed( need );
-                        eventNeed.setStartDate( startDate.toString() );
-                        eventNeed.setEndDate( endDate.toString() );
-                        eventNeed.setDateScope( dateScope );
-                        eventNeed.setDescription( description );
-                        eventNeed.setConfirmed( isConfirmed );
+                        eventNeed.load( rs );
 
                         UserProfile requesterUserProfile = new UserProfile();
                         requesterUserProfile.setUserId( requesterId );
@@ -914,12 +924,16 @@ public class DBResource
         Map<Integer, UserProfile> friendUserProfileList = getFriendProfiles( userId, conn );
 
         String sqlSb = "SELECT id," +
-                " user_id, need, " +
+                " user_id," +
+                " verb, " +
+                " noun, " +
                 "start_date, " +
                 "end_date, " +
                 "date_scope, " +
+                "start_time, " +
+                "end_time, " +
+                "time_scope, " +
                 "is_confirmed, " +
-                "description, " +
                 "( SELECT GROUP_CONCAT(ep.user_id) FROM event_participants ep WHERE ep.event_need_id = en.id ) participants, " +
                 "( SELECT GROUP_CONCAT(ei.user_id) FROM event_interested ei WHERE ei.event_need_id = en.id ) interested, " +
                 "( SELECT COUNT(*) > 0 FROM join_request jr WHERE jr.event_need_id = en.id AND jr.user_id = ? ) is_join_requested " +
@@ -978,7 +992,7 @@ public class DBResource
                     long participatingFriendCount = participantIdList.stream().filter( friendUserProfileList::containsKey ).count();
 
                     EventNeed eventNeed = new EventNeed();
-                    eventNeed.load( rs );
+                    eventNeed.load( rs, true );
                     eventNeed.setName( isParticipating ? friendUserProfileList.get( eventNeed.getUserId() ).getDisplayName() : null );
 
                     // Load participating user profiles
@@ -1039,12 +1053,16 @@ public class DBResource
         Map<Integer, UserProfile> friendUserProfileList = getFriendProfiles( userId, conn );
 
         StringBuilder sqlSb = new StringBuilder( "SELECT id," +
-                " user_id, need, " +
+                " user_id," +
+                " verb, " +
+                " noun, " +
                 "start_date, " +
                 "end_date, " +
                 "date_scope, " +
+                "start_time, " +
+                "end_time, " +
+                "time_scope, " +
                 "is_confirmed, " +
-                "description, " +
                 "( SELECT GROUP_CONCAT(ep.user_id) FROM event_participants ep WHERE ep.event_need_id = en.id ) participants, " +
                 "( SELECT GROUP_CONCAT(ei.user_id) FROM event_interested ei WHERE ei.event_need_id = en.id ) interested, " +
                 "( SELECT COUNT(*) > 0 FROM join_request jr WHERE jr.event_need_id = en.id AND jr.user_id = ? ) is_join_requested " +

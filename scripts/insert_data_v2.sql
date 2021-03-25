@@ -1,9 +1,9 @@
 INSERT INTO user
     (facebook_id, firebase_uid, name)
     VALUES
-    ('111157127696026', 'E1G1c6qsOCdwjtVpnHj3UkNdgal2', 'Dulitha Dabare'),
-    ('101027082060778', 'KLHWWtRraQhfOmms2rzv0T9dr0r1', 'Asitha Kuruppu'),
-    ('100981172065335', 'pAoLmck2i1QBLdwfHtY6ZfsDX842', 'Pasan Kalpana'),
+    ('111157127696026', 'V4kLwsaSJdgRJWaEK2wAJv9WxEG3', 'Dulitha Dabare'),
+    ('101027082060778', 'FK6NcgwcisNmMzTQR1CcR7RNyUp1', 'Asitha Kuruppu'),
+    ('100981172065335', 'fAb0IDiWYAM26X5VeLe3nCIvvRA2', 'Pasan Kalpana'),
     ('108942124588004', 'NeCLFD07PbYV8Nwodh4wQ5iDCot1', 'Shehan Gunathilake'),
     ('104824335006510', 'L7Z2J9OEwzcSnKDcisemUtAuz5B2', 'Dilanka Gamage'),
     ('104940924994723', '6Iuk4cvi8DeZXUSnAeP2HG4n4fn2', 'Nipuna Dinendra'),

@@ -3,7 +3,6 @@ package com.dulithadabare.dosomething.model;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class EventNeed
@@ -11,28 +10,41 @@ public class EventNeed
     private long id;
     private int userId;
     private String name;
-    private String need;
+    private String verb;
+    private String noun;
     private String startDate;
     private String endDate;
     private String dateScope;
+    private String startTime;
+    private String endTime;
+    private String timeScope;
     private boolean isConfirmed;
     private List<UserProfile> participantList = new ArrayList<>();
     private int interestedCount;
     private int participatingCount;
-    private String description = "";
 
-    public void load( ResultSet rs) throws SQLException
+    public void load( ResultSet rs) throws  SQLException{
+        load( rs, false);
+    }
+
+    public void load( ResultSet rs, boolean isLoadOptional) throws SQLException
     {
         this.id = rs.getLong( "id" );
         this.userId = rs.getInt( "user_id" );
-        this.need = rs.getString( "need" );
+        this.verb = rs.getString( "verb" );
+        this.noun = rs.getString( "noun" );
         this.startDate = rs.getDate( "start_date" ).toString();
         this.endDate = rs.getDate( "end_date" ).toString();
         this.dateScope = rs.getString( "date_scope" );
-        this.description = rs.getString( "description" );
+        this.startTime = rs.getTime( "start_time" ).toString();
+        this.endTime = rs.getTime( "end_time" ).toString();
+        this.timeScope = rs.getString( "time_scope" );
         this.isConfirmed = rs.getBoolean( "is_confirmed" );
 
-        loadOptionalParams( rs );
+        if ( isLoadOptional )
+        {
+            loadOptionalParams( rs );
+        }
     }
 
     private void loadOptionalParams( ResultSet rs )
@@ -79,12 +91,22 @@ public class EventNeed
         this.name = name;
     }
 
-    public String getNeed() {
-        return need;
+    public String getVerb() {
+        return verb;
     }
 
-    public void setNeed( String need ) {
-        this.need = need;
+    public void setVerb( String verb ) {
+        this.verb = verb;
+    }
+
+    public String getNoun()
+    {
+        return noun;
+    }
+
+    public void setNoun( String noun )
+    {
+        this.noun = noun;
     }
 
     public String getStartDate() {
@@ -111,6 +133,36 @@ public class EventNeed
     public void setDateScope( String dateScope )
     {
         this.dateScope = dateScope;
+    }
+
+    public String getStartTime()
+    {
+        return startTime;
+    }
+
+    public void setStartTime( String startTime )
+    {
+        this.startTime = startTime;
+    }
+
+    public String getEndTime()
+    {
+        return endTime;
+    }
+
+    public void setEndTime( String endTime )
+    {
+        this.endTime = endTime;
+    }
+
+    public String getTimeScope()
+    {
+        return timeScope;
+    }
+
+    public void setTimeScope( String timeScope )
+    {
+        this.timeScope = timeScope;
     }
 
     public boolean isConfirmed() {
@@ -149,15 +201,5 @@ public class EventNeed
     public void setParticipantList( List<UserProfile> participantList )
     {
         this.participantList = participantList;
-    }
-
-    public String getDescription()
-    {
-        return description;
-    }
-
-    public void setDescription( String description )
-    {
-        this.description = description;
     }
 }

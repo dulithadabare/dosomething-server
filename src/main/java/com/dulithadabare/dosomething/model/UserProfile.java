@@ -59,6 +59,7 @@ public class UserProfile
         JSONObject firebase = ((JSONObject)jwt.getClaims().get( "firebase" ));
          this.firebaseUid = jwt.getClaimAsString( "user_id" );
          this.facebookId = String.valueOf((( JSONArray )((JSONObject)firebase.get( "identities" )).get( "facebook.com" )).get( 0 ));
+        //TODO Cannot displayName from the JWT in Linking anonymous with Facebook flow
          this.displayName = jwt.getClaimAsString( "name" );
          this.userId = jwt.getClaim( "sub" );
     }

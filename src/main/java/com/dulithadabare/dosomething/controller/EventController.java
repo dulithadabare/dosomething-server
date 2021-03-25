@@ -16,6 +16,18 @@ public class EventController
     private final DBResource dbResource = new DBResource();
 
     @CrossOrigin
+    @PostMapping( "" )
+    public HttpEntity<BasicResponse> createEvent( @RequestBody EventNeed eventNeed, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        List<FeedItem> createdEvent = dbResource.createEvent( eventNeed, userProfile.getUserId() );
+
+        return new HttpEntity<>( new BasicResponse( createdEvent ) );
+    }
+
+    @CrossOrigin
     @GetMapping( "" )
     public HttpEntity<BasicResponse> getEventsCreatedByUser( @AuthenticationPrincipal Jwt jwt )
     {
@@ -47,18 +59,6 @@ public class EventController
         }
 
         return new HttpEntity<>( new BasicResponse( dbResource.getEventById(  eventId, userProfile.getUserId() ) ));
-    }
-
-    @CrossOrigin
-    @PostMapping( "" )
-    public HttpEntity<BasicResponse> createEvent( @RequestBody EventNeed eventNeed, @AuthenticationPrincipal Jwt jwt )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        List<FeedItem> createdEvent = dbResource.createEvent( eventNeed, userProfile.getUserId() );
-
-        return new HttpEntity<>( new BasicResponse( createdEvent ) );
     }
 
     @CrossOrigin

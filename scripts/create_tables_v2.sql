@@ -22,11 +22,14 @@ CREATE SEQUENCE event_need_sequence START WITH 1 INCREMENT BY 1;
 CREATE TABLE IF NOT EXISTS event_need (
     id BIGINT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR event_need_sequence),
     user_id INT NOT NULL,
-    need TEXT,
-    start_date DATE,
-    end_date DATE,
-    date_scope VARCHAR(20),
-    description TEXT,
+    verb VARCHAR(20) NOT NULL,
+    noun VARCHAR(100) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    date_scope VARCHAR(20) NOT NULL,
+    start_time TIME,
+    end_time TIME,
+    time_scope VARCHAR(10),
     is_confirmed BOOL
 );
 
