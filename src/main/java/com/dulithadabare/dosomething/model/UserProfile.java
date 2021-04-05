@@ -1,5 +1,6 @@
 package com.dulithadabare.dosomething.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import net.minidev.json.JSONArray;
 import net.minidev.json.JSONObject;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -13,6 +14,25 @@ public class UserProfile
     private String firebaseUid;
     private String facebookId;
     private String displayName;
+    private String distance;
+    @JsonIgnore
+    private double longitude;
+    @JsonIgnore
+    private double latitude;
+    private boolean isVisibilityRequested;
+
+    public UserProfile()
+    {
+
+    }
+
+    public UserProfile( Integer userId, String firebaseUid, String facebookId, String displayName )
+    {
+        this.userId = userId;
+        this.firebaseUid = firebaseUid;
+        this.facebookId = facebookId;
+        this.displayName = displayName;
+    }
 
     public Integer getUserId()
     {
@@ -44,6 +64,26 @@ public class UserProfile
         this.facebookId = facebookId;
     }
 
+    public double getLongitude()
+    {
+        return longitude;
+    }
+
+    public void setLongitude( double longitude )
+    {
+        this.longitude = longitude;
+    }
+
+    public double getLatitude()
+    {
+        return latitude;
+    }
+
+    public void setLatitude( double latitude )
+    {
+        this.latitude = latitude;
+    }
+
     public String getDisplayName()
     {
         return displayName;
@@ -52,6 +92,26 @@ public class UserProfile
     public void setDisplayName( String displayName )
     {
         this.displayName = displayName;
+    }
+
+    public String getDistance()
+    {
+        return distance;
+    }
+
+    public void setDistance( String distance )
+    {
+        this.distance = distance;
+    }
+
+    public boolean isVisibilityRequested()
+    {
+        return isVisibilityRequested;
+    }
+
+    public void setVisibilityRequested( boolean visibilityRequested )
+    {
+        isVisibilityRequested = visibilityRequested;
     }
 
     public void loadUserProfileFromJwt( Jwt jwt )
@@ -70,6 +130,8 @@ public class UserProfile
         this.firebaseUid = rs.getString( "firebase_uid" );
         this.facebookId = rs.getString( "facebook_id" );
         this.displayName = rs.getString( "name" );
+        this.longitude = rs.getDouble( "longitude" );
+        this.latitude = rs.getDouble( "latitude" );
     }
 
 }

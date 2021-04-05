@@ -1,14 +1,18 @@
 package com.dulithadabare.dosomething.model;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class FeedItem
 {
     private EventNeed eventNeed;
     private int interestedFriendCount;
     private int participatingFriendCount;
-    private boolean isParticipating;
+    private boolean isAnonymous;
     private boolean isInterested;
-    private boolean isJoinRequested;
-    private boolean isConfirmRequestReceived; // Is Event Participation Requested by OP
+    private List<UserProfile> interestedFriendList = new ArrayList<>();
+    private List<Integer> requestedFriendList = new ArrayList<>();
+    private List<UserProfile> visibleFriendList = new ArrayList<>();
 
     public EventNeed getEventNeed()
     {
@@ -20,14 +24,14 @@ public class FeedItem
         this.eventNeed = eventNeed;
     }
 
-    public boolean isParticipating()
+    public boolean isAnonymous()
     {
-        return isParticipating;
+        return isAnonymous;
     }
 
-    public void setParticipating( boolean participating )
+    public void setAnonymous( boolean anonymous )
     {
-        isParticipating = participating;
+        isAnonymous = anonymous;
     }
 
     public int getInterestedFriendCount()
@@ -60,23 +64,33 @@ public class FeedItem
         isInterested = interested;
     }
 
-    public boolean isJoinRequested()
+    public List<UserProfile> getVisibleFriendList()
     {
-        return isJoinRequested;
+        return visibleFriendList;
     }
 
-    public void setJoinRequested( boolean joinRequested )
+    public void setVisibleFriendList( List<UserProfile> visibleFriendList )
     {
-        isJoinRequested = joinRequested;
+        this.visibleFriendList = visibleFriendList;
     }
 
-    public boolean isConfirmRequestReceived()
+    public List<UserProfile> getInterestedFriendList()
     {
-        return isConfirmRequestReceived;
+        return interestedFriendList;
     }
 
-    public void setConfirmRequestReceived( boolean confirmRequestReceived )
+    public void setInterestedFriendList( List<UserProfile> interestedFriendList )
     {
-        isConfirmRequestReceived = confirmRequestReceived;
+        this.interestedFriendList = interestedFriendList;
+    }
+
+    public List<Integer> getRequestedFriendList()
+    {
+        return requestedFriendList;
+    }
+
+    public void setRequestedFriendList( List<Integer> requestedFriendList )
+    {
+        this.requestedFriendList = requestedFriendList;
     }
 }

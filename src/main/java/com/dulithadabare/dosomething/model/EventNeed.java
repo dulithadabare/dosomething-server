@@ -1,27 +1,23 @@
 package com.dulithadabare.dosomething.model;
 
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
+import java.sql.Time;
 
 public class EventNeed
 {
     private long id;
     private int userId;
     private String name;
-    private String verb;
-    private String noun;
+    private String activity;
     private String startDate;
     private String endDate;
     private String dateScope;
     private String startTime;
     private String endTime;
     private String timeScope;
-    private boolean isConfirmed;
-    private List<UserProfile> participantList = new ArrayList<>();
     private int interestedCount;
-    private int participatingCount;
 
     public void load( ResultSet rs) throws  SQLException{
         load( rs, false);
@@ -31,15 +27,21 @@ public class EventNeed
     {
         this.id = rs.getLong( "id" );
         this.userId = rs.getInt( "user_id" );
-        this.verb = rs.getString( "verb" );
-        this.noun = rs.getString( "noun" );
-        this.startDate = rs.getDate( "start_date" ).toString();
-        this.endDate = rs.getDate( "end_date" ).toString();
+        this.activity = rs.getString( "activity" );
+
+        Date startDate = rs.getDate( "start_date" );
+        Date endDate = rs.getDate( "end_date" );
+
+        this.startDate = startDate != null ? startDate.toString() : null;
+        this.endDate = endDate != null ? endDate.toString() : null;
         this.dateScope = rs.getString( "date_scope" );
-        this.startTime = rs.getTime( "start_time" ).toString();
-        this.endTime = rs.getTime( "end_time" ).toString();
+
+        Time startTime = rs.getTime( "start_time" );
+        Time endTime = rs.getTime( "end_time" );
+
+        this.startTime = startTime != null ? startTime.toString() : null;
+        this.endTime = endTime != null ? endTime.toString() : null;
         this.timeScope = rs.getString( "time_scope" );
-        this.isConfirmed = rs.getBoolean( "is_confirmed" );
 
         if ( isLoadOptional )
         {
@@ -51,11 +53,9 @@ public class EventNeed
     {
         try
         {
-            String participants = rs.getString( "participants" );
             String interested = rs.getString( "interested" );
 
             this.interestedCount = interested != null ? interested.split( "," ).length : 0;
-            this.participatingCount =  participants != null ? participants.split( "," ).length : 0;
         }
         catch ( SQLException e )
         {
@@ -91,22 +91,14 @@ public class EventNeed
         this.name = name;
     }
 
-    public String getVerb() {
-        return verb;
-    }
-
-    public void setVerb( String verb ) {
-        this.verb = verb;
-    }
-
-    public String getNoun()
+    public String getActivity()
     {
-        return noun;
+        return activity;
     }
 
-    public void setNoun( String noun )
+    public void setActivity( String activity )
     {
-        this.noun = noun;
+        this.activity = activity;
     }
 
     public String getStartDate() {
@@ -165,19 +157,6 @@ public class EventNeed
         this.timeScope = timeScope;
     }
 
-    public boolean isConfirmed() {
-        return isConfirmed;
-    }
-
-    public void setConfirmed(boolean confirmed) {
-        isConfirmed = confirmed;
-    }
-
-    public List<UserProfile> getParticipantList()
-    {
-        return participantList;
-    }
-
     public int getInterestedCount()
     {
         return interestedCount;
@@ -186,20 +165,5 @@ public class EventNeed
     public void setInterestedCount( int interestedCount )
     {
         this.interestedCount = interestedCount;
-    }
-
-    public int getParticipatingCount()
-    {
-        return participatingCount;
-    }
-
-    public void setParticipatingCount( int participatingCount )
-    {
-        this.participatingCount = participatingCount;
-    }
-
-    public void setParticipantList( List<UserProfile> participantList )
-    {
-        this.participantList = participantList;
     }
 }

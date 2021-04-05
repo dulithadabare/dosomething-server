@@ -1,22 +1,16 @@
 package com.dulithadabare.dosomething.model;
 
-public class RevealRequest
+public class VisibilityNotification
 {
-    private UserModel user;
+    private UserProfile user;
     private EventNeed eventNeed;
 
-    public RevealRequest( UserModel user, EventNeed eventNeed )
-    {
-        this.user = user;
-        this.eventNeed = eventNeed;
-    }
-
-    public UserModel getUser()
+    public UserProfile getUser()
     {
         return user;
     }
 
-    public void setUser( UserModel user )
+    public void setUser( UserProfile user )
     {
         this.user = user;
     }
