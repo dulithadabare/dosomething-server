@@ -3,7 +3,7 @@ package com.dulithadabare.dosomething.model;
 public class JoinRequest
 {
     private UserProfile user;
-    private EventNeed eventNeed;
+    private Event event;
 
     public UserProfile getUser()
     {
@@ -15,13 +15,13 @@ public class JoinRequest
         this.user = user;
     }
 
-    public EventNeed getEventNeed()
+    public Event getEventNeed()
     {
-        return eventNeed;
+        return event;
     }
 
-    public void setEventNeed( EventNeed eventNeed )
+    public void setEventNeed( Event event )
     {
-        this.eventNeed = eventNeed;
+        this.event = event;
     }
 }

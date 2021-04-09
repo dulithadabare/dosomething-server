@@ -1,9 +1,8 @@
 package com.dulithadabare.dosomething.model;
 
-public class VisibilityNotification
+public class VisibilityRevealNotification extends EventNotification
 {
     private UserProfile user;
-    private EventNeed eventNeed;
 
     public UserProfile getUser()
     {
@@ -15,13 +14,9 @@ public class VisibilityNotification
         this.user = user;
     }
 
-    public EventNeed getEventNeed()
+    @Override
+    public int getNotificationType()
     {
-        return eventNeed;
-    }
-
-    public void setEventNeed( EventNeed eventNeed )
-    {
-        this.eventNeed = eventNeed;
+        return VISIBILITY_REVEAL_NOTIFICATION;
     }
 }

@@ -19,7 +19,7 @@ public class FeedController
 
     @CrossOrigin
     @GetMapping( "" )
-    public HttpEntity<BasicResponse> getFeed( @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getActivityFeed( @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -30,6 +30,21 @@ public class FeedController
         }
 
         return dbResource.getFeed( userProfile.getUserId() );
+    }
+
+    @CrossOrigin
+    @GetMapping( "/confirmed-events" )
+    public HttpEntity<BasicResponse> getConfirmedEventFeed( @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.getConfirmedEvents( userProfile.getUserId() );
     }
 
 }

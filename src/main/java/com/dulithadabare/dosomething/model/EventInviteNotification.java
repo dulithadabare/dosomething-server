@@ -1,9 +1,8 @@
 package com.dulithadabare.dosomething.model;
 
-public class ConfirmRequest
+public class EventInviteNotification extends EventNotification
 {
     private UserProfile user;
-    private Event event;
 
     public UserProfile getUser()
     {
@@ -15,13 +14,9 @@ public class ConfirmRequest
         this.user = user;
     }
 
-    public Event getEventNeed()
+    @Override
+    public int getNotificationType()
     {
-        return event;
-    }
-
-    public void setEventNeed( Event event )
-    {
-        this.event = event;
+        return EVENT_INVITE_NOTIFICATION;
     }
 }

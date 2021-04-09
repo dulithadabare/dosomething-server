@@ -17,14 +17,38 @@ public class EventController
 
     @CrossOrigin
     @PostMapping( "" )
-    public HttpEntity<BasicResponse> createEvent( @RequestBody EventNeed eventNeed, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> createEvent( @RequestBody Event event, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
 
-        List<FeedItem> createdEvent = dbResource.createEvent( eventNeed, userProfile.getUserId() );
+        List<FeedItem> createdEvent = dbResource.createEvent( event, userProfile.getUserId() );
 
         return new HttpEntity<>( new BasicResponse( createdEvent ) );
+    }
+
+    @CrossOrigin
+    @PostMapping( "/confirmed-events" )
+    public HttpEntity<BasicResponse> createConfirmedEvent( @RequestBody ConfirmedEvent event, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        ConfirmedEvent confirmedEvent = dbResource.createConfirmedEvent( event, userProfile.getUserId() );
+
+        return new HttpEntity<>( new BasicResponse( confirmedEvent ) );
+    }
+
+    @CrossOrigin
+    @PutMapping( "/confirmed-events" )
+    public HttpEntity<BasicResponse> updateConfirmedEvent( @RequestBody ConfirmedEvent event, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        ConfirmedEvent confirmedEvent = dbResource.updateConfirmedEvent( event, userProfile.getUserId() );
+
+        return new HttpEntity<>( new BasicResponse( confirmedEvent ) );
     }
 
     @CrossOrigin
@@ -60,21 +84,6 @@ public class EventController
     }
 
     @CrossOrigin
-//    @PutMapping( "/{eventId}" )
-    public HttpEntity<BasicResponse> updateEvent( long eventId, @RequestBody EventNeed eventNeed, @AuthenticationPrincipal Jwt jwt )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        if ( userProfile.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return new HttpEntity<>( new BasicResponse( dbResource.updateEvent(  eventNeed, userProfile.getUserId() ) ));
-    }
-
-    @CrossOrigin
     @PostMapping( "/{eventId}/users" )
     public HttpEntity<BasicResponse> addEventInterest( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt  )
     {
@@ -86,7 +95,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        List<FeedItem> updatedEvent = dbResource.addEventInterest( eventId, userProfile.getUserId() );
+        List<FeedItem> updatedEvent = dbResource.addEventInterest( eventId, userProfile.getUserId(), false );
 
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
@@ -138,6 +147,23 @@ public class EventController
         }
 
         List<FeedItem> updatedEvent = dbResource.addEventVisibility( eventId, userProfile.getUserId(), friendId );
+
+        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+    }
+
+    @CrossOrigin
+    @PostMapping( "/{eventId}/participants/{creatorId}" )
+    public HttpEntity<BasicResponse> acceptEventInvite( @PathVariable long eventId, @PathVariable int creatorId, @AuthenticationPrincipal Jwt jwt  )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        ConfirmedEvent updatedEvent = dbResource.acceptEventInvite( eventId, userProfile.getUserId(), creatorId );
 
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }

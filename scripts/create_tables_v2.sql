@@ -19,62 +19,93 @@ CREATE TABLE IF NOT EXISTS friend (
     PRIMARY KEY (user_id, friend_id)
 );
 
-CREATE SEQUENCE event_need_sequence START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE event_sequence START WITH 1 INCREMENT BY 1;
 
-CREATE TABLE IF NOT EXISTS event_need (
-    id BIGINT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR event_need_sequence),
+CREATE TABLE IF NOT EXISTS event (
+    id BIGINT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR event_sequence),
     user_id INT NOT NULL,
     activity VARCHAR(100) NOT NULL,
-    start_date DATE,
-    end_date DATE,
-    date_scope VARCHAR(20),
-    start_time TIME,
-    end_time TIME,
-    time_scope VARCHAR(10),
+    description VARCHAR(500),
+    date DATE,
+    time TIME,
     longitude DOUBLE(15, 13),
-    latitude DOUBLE(15, 13)
+    latitude DOUBLE(15, 13),
+    is_confirmed BOOL DEFAULT FALSE,
+    is_public BOOL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS event_interested (
-    event_need_id BIGINT NOT NULL,
+    event_id BIGINT NOT NULL,
     user_id INT NOT NULL,
-    PRIMARY KEY (event_need_id, user_id)
+    PRIMARY KEY (event_id, user_id)
 --    code_name VARCHAR(30) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS event_visibility (
-    event_need_id BIGINT NOT NULL,
+    event_id BIGINT NOT NULL,
     user_id INT NOT NULL,
     friend_id INT NOT NULL,
-    PRIMARY KEY (event_need_id, user_id, friend_id)
+    PRIMARY KEY (event_id, user_id, friend_id)
 );
 
 CREATE TABLE IF NOT EXISTS visibility_request (
-    event_need_id BIGINT NOT NULL,
+    event_id BIGINT NOT NULL,
     user_id INT NOT NULL,
     friend_id INT NOT NULL,
-    PRIMARY KEY (event_need_id, user_id, friend_id)
+    PRIMARY KEY (event_id, user_id, friend_id)
 );
 
 CREATE TABLE IF NOT EXISTS visibility_notification (
-    event_need_id BIGINT NOT NULL,
+    event_id BIGINT NOT NULL,
     user_id INT NOT NULL,
     friend_id INT NOT NULL,
-    PRIMARY KEY (event_need_id, user_id, friend_id)
+    PRIMARY KEY (event_id, user_id, friend_id)
+);
+
+CREATE TABLE IF NOT EXISTS event_participant (
+    event_id BIGINT NOT NULL,
+    user_id INT NOT NULL,
+    is_confirmed BOOL DEFAULT FALSE,
+    PRIMARY KEY (event_id, user_id)
+--    code_name VARCHAR(30) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS event_invite (
+    event_id BIGINT NOT NULL,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    PRIMARY KEY (event_id, sender_id, receiver_id)
+--    code_name VARCHAR(30) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS interest_notification (
+    event_id BIGINT NOT NULL,
+    user_id INT NOT NULL,
+    PRIMARY KEY (event_id, user_id)
 );
 
 ALTER TABLE friend ADD CONSTRAINT friend_user_id_fk FOREIGN KEY (user_id) REFERENCES user(id);
 ALTER TABLE friend ADD CONSTRAINT friend_friend_id_fk FOREIGN KEY (friend_id) REFERENCES user(id);
 
-ALTER TABLE event_need ADD CONSTRAINT event_need_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
+ALTER TABLE event ADD CONSTRAINT event_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
 
-ALTER TABLE event_interested ADD CONSTRAINT event_interested_need_fk FOREIGN KEY (event_need_id) REFERENCES event_need(id);
+ALTER TABLE event_interested ADD CONSTRAINT event_interested_need_fk FOREIGN KEY (event_id) REFERENCES event(id);
 ALTER TABLE event_interested ADD CONSTRAINT event_interested_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
 
-ALTER TABLE event_visibility ADD CONSTRAINT event_visibility_need_fk FOREIGN KEY (event_need_id) REFERENCES event_need(id);
+ALTER TABLE event_participant ADD CONSTRAINT event_participant_need_fk FOREIGN KEY (event_id) REFERENCES event(id);
+ALTER TABLE event_participant ADD CONSTRAINT event_participant_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
+
+ALTER TABLE event_invite ADD CONSTRAINT invite_event_fk FOREIGN KEY (event_id) REFERENCES event(id);
+ALTER TABLE event_invite ADD CONSTRAINT sender_user_fk FOREIGN KEY (sender_id) REFERENCES user(id);
+ALTER TABLE event_invite ADD CONSTRAINT receiver_id_user_fk FOREIGN KEY (receiver_id) REFERENCES user(id);
+
+ALTER TABLE event_visibility ADD CONSTRAINT event_visibility_need_fk FOREIGN KEY (event_id) REFERENCES event(id);
 ALTER TABLE event_visibility ADD CONSTRAINT event_visibility_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
 ALTER TABLE event_visibility ADD CONSTRAINT event_visibility_friend_fk FOREIGN KEY (friend_id) REFERENCES user(id);
 
-ALTER TABLE visibility_notification ADD CONSTRAINT visibility_notification_need_fk FOREIGN KEY (event_need_id) REFERENCES event_need(id);
+ALTER TABLE visibility_notification ADD CONSTRAINT visibility_notification_need_fk FOREIGN KEY (event_id) REFERENCES event(id);
 ALTER TABLE visibility_notification ADD CONSTRAINT visibility_notification_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
-ALTER TABLE visibility_notification ADD CONSTRAINT visibility_noti_friend_user_fk FOREIGN KEY (friend_id) REFERENCES user(id);
+ALTER TABLE visibility_notification ADD CONSTRAINT visibility_notification_friend_user_fk FOREIGN KEY (friend_id) REFERENCES user(id);
+
+ALTER TABLE interest_notification ADD CONSTRAINT interest_notification_need_fk FOREIGN KEY (event_id) REFERENCES event(id);
+ALTER TABLE interest_notification ADD CONSTRAINT interest_notification_user_fk FOREIGN KEY (user_id) REFERENCES user(id);

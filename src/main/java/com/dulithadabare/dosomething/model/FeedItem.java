@@ -5,7 +5,7 @@ import java.util.List;
 
 public class FeedItem
 {
-    private EventNeed eventNeed;
+    private Event event;
     private int interestedFriendCount;
     private int participatingFriendCount;
     private boolean isAnonymous;
@@ -14,14 +14,14 @@ public class FeedItem
     private List<Integer> requestedFriendList = new ArrayList<>();
     private List<UserProfile> visibleFriendList = new ArrayList<>();
 
-    public EventNeed getEventNeed()
+    public Event getEventNeed()
     {
-        return eventNeed;
+        return event;
     }
 
-    public void setEventNeed( EventNeed eventNeed )
+    public void setEventNeed( Event event )
     {
-        this.eventNeed = eventNeed;
+        this.event = event;
     }
 
     public boolean isAnonymous()

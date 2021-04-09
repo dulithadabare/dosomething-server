@@ -5,8 +5,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-import java.sql.*;
-import java.util.*;
 
 @RestController
 @RequestMapping( "/users" )
@@ -65,7 +63,7 @@ public class UserController
 
     @CrossOrigin
     @GetMapping( "/notifications" )
-    public HttpEntity<BasicResponse> getNotificationsByType( @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getEventNotifications( @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -75,7 +73,6 @@ public class UserController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getVisibilityNotifications( userProfile.getUserId() );
+        return dbResource.getEventNotifications( userProfile.getUserId() );
     }
-
 }
