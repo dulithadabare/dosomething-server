@@ -2,16 +2,12 @@ package com.dulithadabare.dosomething.model;
 
 public class UserLocation
 {
-    private double longitude;
     private double latitude;
+    private double longitude;
 
-    public double getLongitude()
+    public UserLocation(  double latitude, double longitude )
     {
-        return longitude;
-    }
-
-    public void setLongitude( double longitude )
-    {
+        this.latitude = latitude;
         this.longitude = longitude;
     }
 
@@ -23,5 +19,15 @@ public class UserLocation
     public void setLatitude( double latitude )
     {
         this.latitude = latitude;
+    }
+
+    public double getLongitude()
+    {
+        return longitude;
+    }
+
+    public void setLongitude( double longitude )
+    {
+        this.longitude = longitude;
     }
 }

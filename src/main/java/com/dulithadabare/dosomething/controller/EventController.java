@@ -70,7 +70,7 @@ public class EventController
 
     @CrossOrigin
     @GetMapping( "/{eventId}" )
-    public HttpEntity<BasicResponse> getEventById( long eventId, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getEventById( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );

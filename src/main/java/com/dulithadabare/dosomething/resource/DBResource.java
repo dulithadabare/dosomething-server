@@ -20,12 +20,9 @@ public class DBResource
 
     private final String EVENT_SELECT = "SELECT " +
             " id," +
-            " user_id," +
+            " creator_id," +
             " activity, " +
-            " date, " +
-            " time, " +
-            " is_confirmed, " +
-            " is_public, " +
+            " is_active, " +
             "( SELECT GROUP_CONCAT(ev.friend_id) FROM event_visibility ev WHERE ev.user_id = ? AND ev.event_id = en.id ) visible, " +
             "( SELECT GROUP_CONCAT(vr.user_id) FROM visibility_request vr WHERE vr.friend_id = ? AND vr.event_id = en.id ) requested, " +
             "( SELECT GROUP_CONCAT(ei.user_id) FROM event_interested ei WHERE ei.event_id = en.id ) interested ";
@@ -237,7 +234,7 @@ public class DBResource
             // Create event
 
             try ( PreparedStatement ps = conn.prepareStatement( "INSERT IGNORE INTO event (" +
-                    " user_id ," +
+                    " creator_id ," +
                     " activity" +
                     " ) VALUES ( ?, ?)" ) )
             {
@@ -277,22 +274,16 @@ public class DBResource
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
-            // Create event
+            // Create confirmed event
 
-            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE event SET" +
-                    " user_id = ?," +
-                    " activity = ?," +
-                    " date = ?," +
-                    " time = ?," +
-                    " is_confirmed = ?," +
-                    " is_public = ?" +
-                    " WHERE id = ?" ) )
+            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO confirmed_event (" +
+                    " creator_id," +
+                    " activity," +
+                    " date," +
+                    " time," +
+                    " is_public" +
+                    " ) VALUES ( ?, ?, ?, ?, ?)" ) )
             {
-                // Add creator as participant
-                EventParticipant participantCreator = new EventParticipant();
-                participantCreator.setUserId( userId );
-                event.getParticipantList().add( participantCreator );
-
                 Date date = event.getDate() != null && !event.getDate().isEmpty() ? Date.valueOf( event.getDate() ) : null;
 
                 Time time = event.getTime() != null && !event.getTime().isEmpty() ? Time.valueOf( LocalTime.parse( event.getTime() ) ) : null;
@@ -305,9 +296,7 @@ public class DBResource
                 ps.setString( count++, event.getActivity() );
                 ps.setDate( count++, date );
                 ps.setTime( count++, time );
-                ps.setBoolean( count++, true );
                 ps.setBoolean( count++, event.isPublic() );
-                ps.setLong( count++, event.getId() );
 
                 //execute query
                 ps.executeUpdate();
@@ -318,17 +307,24 @@ public class DBResource
                 e.printStackTrace();
             }
 
+            // Get created event id
+            long confirmedEventId = getLastCreatedValueForConfirmedEvent( conn );
+            event.setId( confirmedEventId );
+
             //Add event participants
 
             StringBuilder insertSqlSb = new StringBuilder( "INSERT IGNORE INTO event_participant ( event_id, user_id ) VALUES " );
 
             String delim = " ";
 
+            //For event creator
+            insertSqlSb.append( "( ?, ? ) " );
+            delim = ", ";
+
             for ( EventParticipant participant : event.getParticipantList() )
             {
                 insertSqlSb.append( delim );
                 insertSqlSb.append( "( ?, ? )" );
-                delim = ", ";
             }
 
             try ( PreparedStatement ps = conn.prepareStatement( insertSqlSb.toString() ) )
@@ -338,9 +334,12 @@ public class DBResource
 
                 int count = 1;
 
+                ps.setLong( count++, confirmedEventId );
+                ps.setInt( count++, userId );
+
                 for ( EventParticipant participant : event.getParticipantList() )
                 {
-                    ps.setLong( count++, event.getId() );
+                    ps.setLong( count++, confirmedEventId );
                     ps.setInt( count++, participant.getUserId() );
                 }
 
@@ -353,21 +352,110 @@ public class DBResource
                 e.printStackTrace();
             }
 
+            List<VisibilityPair> visibilityPairList = new ArrayList<>();
+
+            // Load from event interested visibility matrix
+
+            String interestedVisibilitySql = "SELECT " +
+                    "ev.user_id, " +
+                    "ev.friend_id " +
+                    "FROM event_visibility ev WHERE ev.event_id = ?";
+
+            try ( PreparedStatement ps = conn.prepareStatement( interestedVisibilitySql ) )
+            {
+
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+
+                ps.setLong( count++, confirmedEventId );
+
+                //execute query
+                try ( ResultSet rs = ps.executeQuery() )
+                {
+                    //position result to first
+
+                    while ( rs.next() )
+                    {
+                        int col = 1;
+                        int visibleUserId = rs.getInt( col++ );
+                        int visibleToFriendId = rs.getInt( col++ );
+
+                        VisibilityPair visibilityPair = new VisibilityPair( visibleUserId, visibleToFriendId );
+
+                        visibilityPairList.add( visibilityPair );
+                    }
+
+                }
+                catch ( SQLException e )
+                {
+                    e.printStackTrace();
+                }
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+
+            //Add event participant visibility
+
+            // Make event creator visible to all invited users
+            for ( EventParticipant participant : event.getParticipantList() )
+            {
+                VisibilityPair visibilityPair = new VisibilityPair( userId, participant.getUserId() );
+                visibilityPairList.add( visibilityPair );
+            }
+
+
+            if ( !visibilityPairList.isEmpty() )
+            {
+                StringBuilder visibilitySqlSb = new StringBuilder( "INSERT IGNORE INTO participant_visibility ( event_id, user_id, friend_id ) VALUES " );
+
+                delim = " ";
+
+                for ( VisibilityPair visibilityPair : visibilityPairList )
+                {
+                    visibilitySqlSb.append( delim );
+                    visibilitySqlSb.append( "( ?, ?, ? )" );
+                    delim = ", ";
+                }
+
+                try ( PreparedStatement ps = conn.prepareStatement( visibilitySqlSb.toString() ) )
+                {
+
+                    ps.setFetchSize( 1000 );
+
+                    int count = 1;
+
+                    for ( VisibilityPair visibilityPair : visibilityPairList )
+                    {
+                        ps.setLong( count++, confirmedEventId );
+                        ps.setInt( count++, visibilityPair.getUserId() );
+                        ps.setInt( count++, visibilityPair.getFriendId() );
+                    }
+
+                    //execute query
+                    ps.executeUpdate();
+
+                }
+                catch ( SQLException e )
+                {
+                    e.printStackTrace();
+                }
+            }
+
             // Confirm event participation for creator
-            addEventParticipation( event.getId(), userId, conn );
+            addEventParticipation( confirmedEventId, userId, conn );
 
-            // Add confirm notifications to invitees excluding the creator
+            // Add confirm notifications to invitees
 
-            // Exclude event creator
-            List<EventParticipant> inviteeList = event.getParticipantList().stream().filter( e -> e.getUserId() != userId ).collect( Collectors.toList() );
-
-            if ( !inviteeList.isEmpty() )
+            if ( !event.getParticipantList().isEmpty() )
             {
                 StringBuilder updateSqlSb = new StringBuilder( "INSERT IGNORE INTO event_invite ( event_id, sender_id, receiver_id ) VALUES " );
 
                 String delimiter = " ";
 
-                for ( EventParticipant invitee : inviteeList )
+                for ( EventParticipant invitee : event.getParticipantList() )
                 {
                     updateSqlSb.append( delimiter );
                     updateSqlSb.append( "(?, ?, ?)" );
@@ -381,9 +469,9 @@ public class DBResource
 
                     int count = 1;
 
-                    for ( EventParticipant invitee : inviteeList )
+                    for ( EventParticipant invitee : event.getParticipantList() )
                     {
-                        ps.setLong( count++, event.getId() );
+                        ps.setLong( count++, confirmedEventId );
                         ps.setInt( count++, userId );
                         ps.setInt( count++, invitee.getUserId() );
                     }
@@ -398,7 +486,29 @@ public class DBResource
                 }
             }
 
-            createdEvent = getConfirmedEventById( event.getId(), userId, conn );
+            createdEvent = getConfirmedEventById( confirmedEventId, userId, conn );
+
+            // Make activity inactive
+
+            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE event SET " +
+                    " is_active = FALSE" +
+                    " WHERE id = ?" ) )
+            {
+
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+                ps.setLong( count++, event.getActivityId() );
+
+                //execute query
+                ps.executeUpdate();
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+
 
         }
         catch ( SQLException e )
@@ -416,7 +526,7 @@ public class DBResource
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
-            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE event SET " +
+            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE confirmed_event SET " +
                     " date = ?," +
                     " time = ?," +
                     " is_public = ?" +
@@ -460,13 +570,13 @@ public class DBResource
     {
         String sqlSb = "SELECT " +
                 " id," +
-                " user_id," +
+                " creator_id," +
                 " activity, " +
                 " description, " +
                 " date, " +
                 " time, " +
                 " is_public " +
-                "FROM event en " +
+                "FROM confirmed_event en " +
                 "WHERE en.id = ? ";
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
@@ -488,6 +598,8 @@ public class DBResource
                     boolean isPublic = rs.getBoolean( "is_public" );
 
                     Map<Integer, EventParticipant> participantMap = getEventParticipants( eventId, conn );
+
+                    updateParticipantVisibility( eventId, userId, conn, participantMap );
 
                     boolean isInvited = participantMap.containsKey( userId );
                     boolean isParticipating = false;
@@ -530,6 +642,34 @@ public class DBResource
 
 
         return null;
+    }
+
+    private void updateParticipantVisibility( long eventId, int userId, Connection conn, Map<Integer, EventParticipant> participantMap )
+    {
+        Map<Integer, List<Integer>> visibilityMap = getVisibilityMatrix( eventId, conn );
+
+        for ( Integer participantId : participantMap.keySet() )
+        {
+            EventParticipant participant = participantMap.get( participantId );
+
+            if ( !participant.isConfirmed() )
+            {
+                //if participant is not visible to current user
+                List<Integer> friendList = visibilityMap.get( participantId );
+
+                if ( friendList == null || friendList.contains( userId ) )
+                {
+                    UserProfile participantUser = participant.getUser();
+                    participantUser.setDisplayName( null );
+                }
+
+                if ( participantId == userId )
+                {
+                    UserProfile participantUser = participant.getUser();
+                    participantUser.setDisplayName( "You" );
+                }
+            }
+        }
     }
 
     public Map<Integer, EventParticipant> getEventParticipants( long eventId, Connection conn )
@@ -595,6 +735,59 @@ public class DBResource
         return participantMap;
     }
 
+    public Map<Integer, List<Integer>> getVisibilityMatrix( long eventId, Connection conn )
+    {
+        Map<Integer, List<Integer>> visibilityMap = new HashMap<>();
+
+        String sqlSb = "SELECT " +
+                " user_id," +
+                " friend_id " +
+                "FROM participant_visibility pv " +
+                "WHERE pv.event_id = ? ";
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, eventId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    int userId = rs.getInt( col++ );
+                    int friendId = rs.getInt( col++ );
+
+                    List<Integer> visibleToFriendList = new ArrayList<>();
+                    visibleToFriendList.add( friendId );
+
+                    visibilityMap.merge( userId, visibleToFriendList, ( currList, newList ) -> {
+                        currList.addAll( newList );
+                        return currList;
+                    } );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return visibilityMap;
+    }
+
     public ConfirmedEvent acceptEventInvite( long eventId, int userId, int senderId )
     {
         ConfirmedEvent updatedEvent = null;
@@ -627,7 +820,26 @@ public class DBResource
                 e.printStackTrace();
             }
 
-            // TODO add notification to sender
+            // Add accept notification
+
+            try ( PreparedStatement ps = conn.prepareStatement( "INSERT IGNORE INTO accept_notification ( event_id, user_id ) VALUES ( ?, ? )" ) )
+            {
+
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+
+                ps.setLong( count++, eventId );
+                ps.setInt( count++, userId );
+
+                //execute query
+                ps.executeUpdate();
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
 
             // Load updated event
 
@@ -952,9 +1164,9 @@ public class DBResource
                     "u.name, " +
                     "vr.friend_id, " +
                     "en.id, " +
-                    "en.user_id, " +
+                    "en.creator_id, " +
                     "en.activity,  " +
-                    "en.is_confirmed  " +
+                    "en.is_active  " +
                     "FROM visibility_request vr, event en, user u WHERE vr.user_id = ? AND vr.event_id = en.id AND vr.friend_id = u.id";
 
             try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
@@ -1012,7 +1224,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( notificationList ) );
     }
 
-    //TODO Decline visibility request to delete from database
+    //TODO Decline visibility request
 
     public List<FeedItem> declineVisibilityRequest( long eventId, int userId, int friendId )
     {
@@ -1024,7 +1236,6 @@ public class DBResource
 
             try ( PreparedStatement ps = conn.prepareStatement( "DELETE FROM visibility_request  WHERE event_id = ? AND user_id = ? AND friend_id = ?" ) )
             {
-
                 ps.setFetchSize( 1000 );
 
                 int count = 1;
@@ -1062,6 +1273,7 @@ public class DBResource
            notificationList.addAll( getInterestNotifications( userId, conn ) );
            notificationList.addAll( getVisibilityRevealNotifications( userId, conn ) );
            notificationList.addAll( getEventInviteNotifications( userId, conn ) );
+           notificationList.addAll( getEventAcceptNotifications( userId, conn ) );
         }
         catch ( SQLException e )
         {
@@ -1085,9 +1297,8 @@ public class DBResource
         String sqlSb = "SELECT " +
                 "i.user_id, " +
                 "en.id, " +
-                "en.activity,  " +
-                "en.is_confirmed " +
-                "FROM interest_notification i, event en, user u WHERE en.user_id = ? AND i.event_id = en.id AND i.user_id = u.id";
+                "en.activity  " +
+                "FROM interest_notification i, event en, user u WHERE en.creator_id = ? AND i.event_id = en.id AND i.user_id = u.id";
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
         {
@@ -1215,6 +1426,126 @@ public class DBResource
         return notificationList;
     }
 
+    public List<EventAcceptNotification> getEventAcceptNotifications( int userId, Connection conn )
+    {
+        List<EventAcceptNotification> notificationList = new ArrayList<>();
+
+        // Get new event interests
+
+        String sqlSb = "SELECT " +
+                "i.user_id, " +
+                "u.name, " +
+                "en.id, " +
+                "en.activity,  " +
+                "FROM accept_notification i, confirmed_event en, user u WHERE en.creator_id = ? AND i.event_id = en.id AND i.user_id = u.id";
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setInt( count++, userId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    int participantId = rs.getInt( col++ );
+                    String participantDisplayName = rs.getString( col++ );
+                    long eventId = rs.getLong( col++ );
+                    String eventActivity = rs.getString( col++ );
+                    boolean isConfirmed = rs.getBoolean( col++ );
+
+                    Event event = new Event();
+                    event.setId( eventId );
+                    event.setCreatorId( userId );
+                    event.setActivity( eventActivity );
+                    event.setActive( isConfirmed );
+
+                    UserProfile participant = new UserProfile( participantId, null, null, participantDisplayName );
+
+                    EventAcceptNotification notification = new EventAcceptNotification();
+                    notification.setEvent( event );
+                    notification.setUser( participant );
+
+                    notificationList.add( notification );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+                return notificationList;
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+            return notificationList;
+        }
+
+        // Remove accept notifications
+
+//            StringBuilder deleteSb = new StringBuilder( "DELETE FROM accept_notification  WHERE event_id IN ( " );
+//
+//            String delim = "";
+//
+//            for ( Long eventId : eventInterestedMap.keySet() )
+//            {
+//                deleteSb.append( delim );
+//                deleteSb.append( "?" );
+//                delim = ", ";
+//            }
+//
+//            deleteSb.append( " )" );
+//            deleteSb.append( " AND user_id IN ( " );
+//
+//            delim = "";
+//
+//            for ( int interestedUserId : userList )
+//            {
+//                deleteSb.append( delim );
+//                deleteSb.append( "?" );
+//                delim = ", ";
+//            }
+//
+//            deleteSb.append( " )" );
+//
+//            try ( PreparedStatement ps = conn.prepareStatement( deleteSb.toString() ) )
+//            {
+//
+//                ps.setFetchSize( 1000 );
+//
+//                int count = 1;
+//
+//                for ( Long eventId : eventInterestedMap.keySet() )
+//                {
+//                    ps.setLong( count++, eventId );
+//                }
+//
+//                for ( int interestedUserId : userList )
+//                {
+//                    ps.setInt( count++, interestedUserId );
+//                }
+//
+//                //execute query
+//                ps.executeUpdate();
+//
+//            }
+//            catch ( SQLException e )
+//            {
+//                e.printStackTrace();
+//            }
+
+        return notificationList;
+    }
+
     public List<VisibilityRevealNotification> getVisibilityRevealNotifications( int userId, Connection conn )
     {
         List<VisibilityRevealNotification> notificationList = new ArrayList<>();
@@ -1225,9 +1556,9 @@ public class DBResource
                 "u.name, " +
                 "vn.friend_id, " +
                 "en.id, " +
-                "en.user_id, " +
+                "en.creator_id, " +
                 "en.activity,  " +
-                "en.is_confirmed  " +
+                "en.is_active  " +
                 "FROM visibility_notification vn, event en, user u WHERE vn.user_id = ? AND vn.event_id = en.id AND vn.friend_id = u.id";
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
@@ -1290,13 +1621,13 @@ public class DBResource
                 "u.name, " +
                 "ei.sender_id, " +
                 "en.id, " +
-                "en.user_id, " +
+                "en.creator_id, " +
                 "en.activity,  " +
                 "en.description,  " +
                 "en.date,  " +
                 "en.time,  " +
                 "en.is_public  " +
-                "FROM event_invite ei, event en, user u WHERE ei.receiver_id = ? AND ei.event_id = en.id AND ei.sender_id = u.id";
+                "FROM event_invite ei, confirmed_event en, user u WHERE ei.receiver_id = ? AND ei.event_id = en.id AND ei.sender_id = u.id";
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
         {
@@ -1375,6 +1706,32 @@ public class DBResource
         return eventId;
     }
 
+    public long getLastCreatedValueForConfirmedEvent( Connection conn )
+    {
+        long eventId = -1L;
+
+        try ( PreparedStatement ps = conn.prepareStatement( "SELECT PREVIOUS VALUE FOR confirmed_event_sequence" ) )
+        {
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                while ( rs.next() )
+                {
+                    eventId = rs.getLong( 1 );
+                }
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return eventId;
+    }
+
     public int getLastCreatedValueForUser( Connection conn )
     {
         int userId = -1;
@@ -1422,7 +1779,7 @@ public class DBResource
         List<Integer> friendIdList = getFriendIdList( userId, conn );
 
         String sqlSb = EVENT_SELECT + "FROM event en " +
-                "WHERE en.id = ? ";
+                "WHERE en.id = ?";
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
         {
@@ -1470,7 +1827,9 @@ public class DBResource
 
             List<Integer> friendIdList = getFriendIdList( userId, conn );
 
-            String sqlSb = EVENT_SELECT + "FROM event en " + "WHERE en.user_id = ? ";
+            // Load activities created by user
+
+            String sqlSb = EVENT_SELECT + "FROM event en " + "WHERE en.creator_id = ? ";
 
             try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
             {
@@ -1491,7 +1850,72 @@ public class DBResource
                     while ( rs.next() )
                     {
                         FeedItem feedItem = getFeedItem( friendIdList, userId, conn, rs );
-                        feedItem.getEventNeed().setCreatorDisplayName( "You" );
+                        feedItem.getEvent().setCreatorDisplayName( "You" );
+                        feedItems.add( feedItem );
+                    }
+
+                }
+                catch ( SQLException e )
+                {
+                    e.printStackTrace();
+                }
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+
+            // Load confirmed events created by user
+
+            String confirmedSql = "SELECT " +
+                    " id," +
+                    " creator_id," +
+                    " activity, " +
+                    " description, " +
+                    " date, " +
+                    " time, " +
+                    " is_public " +
+                    "FROM confirmed_event en " +
+                    "WHERE en.creator_id = ? ";
+
+            try ( PreparedStatement ps = conn.prepareStatement( confirmedSql ) )
+            {
+
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+
+                ps.setInt( count++, userId );
+
+                //execute query
+                try ( ResultSet rs = ps.executeQuery() )
+                {
+                    //position result to first
+
+                    while ( rs.next() )
+                    {
+                        long eventId = rs.getLong( "id" );
+                        FeedItem feedItem = new FeedItem();
+
+                        ConfirmedEvent event = new ConfirmedEvent();
+
+                        Map<Integer, EventParticipant> participantMap = getEventParticipants( eventId, conn );
+                        updateParticipantVisibility( eventId, userId, conn, participantMap );
+
+                        event.load( rs );
+                        event.setCreatorDisplayName( participantMap.get( event.creatorId ).getUser().getDisplayName() );
+                        event.setInvited( true );
+                        event.setParticipating( true );
+                        event.setParticipantList( new ArrayList<>( participantMap.values() ) );
+
+                        feedItem.setConfirmedEvent( event );
+
+                        feedItem.setInterestedFriendCount( 0 );
+                        feedItem.setInterested( false );
+                        feedItem.setAnonymous( false );
+                        feedItem.setInterestedFriendList( new ArrayList<>( ) );
+
+//                        feedItem.getConfirmedEvent().setCreatorDisplayName( "You" );
                         feedItems.add( feedItem );
                     }
 
@@ -1538,8 +1962,8 @@ public class DBResource
 
         StringBuilder sqlSb = new StringBuilder( EVENT_SELECT + "FROM event en " +
                 "WHERE " +
-                "en.is_confirmed = FALSE " +
-                "AND en.user_id IN ( " );
+                "en.is_active = TRUE " +
+                "AND en.creator_id IN ( " );
 
         String delim = " ";
 
@@ -1609,15 +2033,14 @@ public class DBResource
 
         StringBuilder sqlSb = new StringBuilder( "SELECT " +
                 " id," +
-                " user_id," +
+                " creator_id," +
                 " activity, " +
                 " date, " +
                 " time, " +
                 " is_public " +
-                "FROM event en " +
+                "FROM confirmed_event en " +
                 "WHERE " +
-                "en.is_confirmed = TRUE " +
-                "AND en.user_id IN ( " );
+                "en.creator_id IN ( " );
 
         String delim = " ";
 
@@ -1676,6 +2099,8 @@ public class DBResource
                     boolean isPublic = rs.getBoolean( "is_public" );
 
                     Map<Integer, EventParticipant> participantMap = getEventParticipants( eventId, conn );
+
+                    updateParticipantVisibility( eventId, userId, conn, participantMap );
 
                     boolean isInvited = participantMap.containsKey( userId );
                     boolean isParticipating = false;
@@ -1744,8 +2169,6 @@ public class DBResource
 
     private FeedItem getFeedItem( List<Integer> friendIdList, int userId, Connection conn, ResultSet rs ) throws SQLException
     {
-        long eventId = rs.getLong( "id" );
-        boolean isConfirmed = rs.getBoolean( "is_confirmed" );
         String visible = rs.getString( "visible" );
         String requested = rs.getString( "requested" );
         String interested = rs.getString( "interested" );
@@ -1770,6 +2193,7 @@ public class DBResource
         // Load interested friend profiles
 
         Map<Integer, UserProfile> interestedFriendMap = getUserProfiles( interestedFriendIdList, conn );
+        Map<Integer, UserLocation> interestedFriendLocationMap = getUserLocation( interestedFriendIdList, conn );
 
         List<Integer> requestedFriendList = new ArrayList<>();
 
@@ -1788,14 +2212,48 @@ public class DBResource
         //Load current user profile
 
         final UserProfile currUser = getUserProfiles( Arrays.asList( userId ), conn ).get( userId );
+        final UserLocation currUserLocation = getUserLocation( Arrays.asList( userId ), conn ).get( userId );
 
-        // Remove identifying details from non-visible friends
+        List<InterestedFriend> interestedFriendList = new ArrayList<>();
 
         for ( Integer friendUserId : interestedFriendMap.keySet() )
         {
             UserProfile friendProfile = interestedFriendMap.get( friendUserId );
+            UserLocation friendLocation = interestedFriendLocationMap.get( friendUserId );
 
-            updateInterestedFriendProfile( requestedFriendList, visibleUserList, currUser, friendProfile );
+            double distanceInMeters = LocationHelper.distance( currUserLocation.getLatitude(), friendLocation.getLatitude(), currUserLocation.getLongitude(), friendLocation.getLongitude(), 0.0, 0.0 );
+            System.out.println( friendProfile.getDisplayName() + " : " + distanceInMeters );
+
+            String distance;
+            if ( distanceInMeters <= 1000 )
+            {
+                distance = ( int ) Math.floor( distanceInMeters ) + " m";
+            }
+            else
+            {
+                double distanceInKm = distanceInMeters / 1000;
+                distance = ( int ) Math.floor( distanceInKm ) + " km";
+            }
+
+            // Remove identifying details from non-visible friends
+
+            if ( !visibleUserList.contains( friendProfile.getUserId() ) )
+            {
+                friendProfile.setDisplayName( null );
+            }
+
+            InterestedFriend interestedFriend = new InterestedFriend();
+            interestedFriend.setUser( friendProfile );
+            interestedFriend.setDistance( distance );
+
+            if ( requestedFriendList.contains( friendProfile.getUserId() ) )
+            {
+                interestedFriend.setVisibilityRequested( true );
+            }
+
+            interestedFriendList.add( interestedFriend );
+
+
         }
 
         boolean isInterested = interestedUserIdList.contains( userId );
@@ -1803,83 +2261,25 @@ public class DBResource
 
         FeedItem feedItem = new FeedItem();
 
-        if ( isConfirmed )
+        Event event = new Event();
+        event.load( rs );
+        event.setInterestedCount( interestedUserIdList.size() );
+
+        String name = null;
+        if ( interestedFriendMap.containsKey( event.getCreatorId() ) )
         {
-            ConfirmedEvent event = new ConfirmedEvent();
-
-            Map<Integer, EventParticipant> participantMap = getEventParticipants( eventId, conn );
-
-            boolean isInvited = participantMap.containsKey( userId );
-            boolean isParticipating = false;
-
-            if ( isInvited )
-            {
-                isParticipating = participantMap.get( userId ).isConfirmed();
-            }
-
-            event.load( rs );
-            event.setCreatorDisplayName( participantMap.get( event.creatorId ).getUser().getDisplayName() );
-            event.setInvited( isInvited );
-            event.setParticipating( isParticipating );
-            event.setParticipating( isParticipating );
-            event.setParticipantList( new ArrayList<>( participantMap.values() ) );
-
-            feedItem.setEventNeed( event );
+            name = interestedFriendMap.get( event.getCreatorId() ).getDisplayName();
         }
-        else
-        {
-            Event event = new Event();
-            event.load( rs );
-            event.setInterestedCount( interestedUserIdList.size() );
 
-            String name = null;
-            if ( interestedFriendMap.containsKey( event.getCreatorId() ) )
-            {
-                name = interestedFriendMap.get( event.getCreatorId() ).getDisplayName();
-            }
-
-            event.setCreatorDisplayName( name );
-            feedItem.setEventNeed( event );
-        }
+        event.setCreatorDisplayName( name );
+        feedItem.setEvent( event );
 
         feedItem.setInterestedFriendCount( interestedFriendIdList.size() );
         feedItem.setInterested( isInterested );
         feedItem.setAnonymous( isAnonymous );
-        feedItem.setInterestedFriendList( new ArrayList<>( interestedFriendMap.values() ) );
+        feedItem.setInterestedFriendList( interestedFriendList );
         return feedItem;
     }
-
-    private void updateInterestedFriendProfile( List<Integer> requestedFriendList, List<Integer> visibleUserList, UserProfile currUser, UserProfile friendProfile )
-    {
-        double distanceInMeters = LocationHelper.distance( currUser.getLatitude(), friendProfile.getLatitude(), currUser.getLongitude(), friendProfile.getLongitude(), 0.0, 0.0 );
-        System.out.println( friendProfile.getDisplayName() + " : " + distanceInMeters );
-
-        String distance;
-        if ( distanceInMeters <= 1000 )
-        {
-            distance = ( int ) Math.floor( distanceInMeters ) + "m";
-        }
-        else
-        {
-            double distanceInKm = distanceInMeters / 1000;
-            distance = ( int ) Math.floor( distanceInKm ) + "km";
-        }
-
-        friendProfile.setDistance( distance );
-
-        if ( !visibleUserList.contains( friendProfile.getUserId() ) )
-        {
-            friendProfile.setFirebaseUid( null );
-            friendProfile.setFacebookId( null );
-            friendProfile.setDisplayName( null );
-        }
-
-        if ( requestedFriendList.contains( friendProfile.getUserId() ) )
-        {
-            friendProfile.setVisibilityRequested( true );
-        }
-    }
-
 
     public List<Integer> getFriendIdList( int userId )
     {
@@ -1959,7 +2359,7 @@ public class DBResource
             return userProfileList;
         }
 
-        StringBuilder friendSql = new StringBuilder( "SELECT u.id, u.firebase_uid, u.facebook_id, u.name, u.longitude, u.latitude FROM user u WHERE u.id IN ( " );
+        StringBuilder friendSql = new StringBuilder( "SELECT u.id, u.name FROM user u WHERE u.id IN ( " );
 
         String delim = " ";
 
@@ -2011,6 +2411,73 @@ public class DBResource
 
         return userProfileList;
     }
+
+    public Map<Integer, UserLocation> getUserLocation( List<Integer> userIdList, Connection conn )
+    {
+        Map<Integer, UserLocation> userLocationMap = new HashMap<>();
+
+        if ( userIdList.isEmpty() )
+        {
+            return userLocationMap;
+        }
+
+        StringBuilder friendSql = new StringBuilder( "SELECT u.id, u.latitude, u.longitude FROM user u WHERE u.id IN ( " );
+
+        String delim = " ";
+
+        for ( int participantUserId : userIdList )
+        {
+            friendSql.append( delim );
+            friendSql.append( "?" );
+            delim = ", ";
+        }
+
+        friendSql.append( " )" );
+
+        try ( PreparedStatement ps = conn.prepareStatement( friendSql.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int pCount = 1;
+
+            for ( int participantUserId : userIdList )
+            {
+                ps.setInt( pCount++, participantUserId );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    int userId = rs.getInt( col++ );
+                    double latitude = rs.getDouble( col++ );
+                    double longitude = rs.getDouble( col++ );
+
+                    UserLocation userLocation = new UserLocation( latitude, longitude);
+
+                    userLocationMap.put( userId, userLocation );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+
+        return userLocationMap;
+    }
+
 
     public void updateFriendList()
     {

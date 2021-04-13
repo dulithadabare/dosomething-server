@@ -9,6 +9,7 @@ import java.util.Map;
 
 public class ConfirmedEvent extends Event
 {
+    private long activityId;
     private String date;
     private String time;
     public boolean isPublic;
@@ -19,27 +20,28 @@ public class ConfirmedEvent extends Event
 
     public ConfirmedEvent()
     {
-        this.isConfirmed = true;
+        this.isActive = true;
     }
 
     @Override
     public void load( ResultSet rs ) throws SQLException
     {
-        super.load( rs );
+        this.id = rs.getLong( "id" );
+        this.creatorId = rs.getInt( "creator_id" );
+        this.activity = rs.getString( "activity" );
 
         Date date = rs.getDate( "date" );
         Time time = rs.getTime( "time" );
 
-        this.date = date.toString();
-        this.time = time.toString();
+        this.date = date != null ? date.toString() : null;
+        this.time = time != null ? time.toString() : null;
 
         this.isPublic = rs.getBoolean( "is_public" );
     }
 
     public void loadPrivateEvent( ResultSet rs ) throws SQLException
     {
-        super.load( rs );
-
+        this.id = rs.getLong( "id" );
         this.activity = rs.getString( "activity" );
         this.creatorId = -1;
     }
@@ -47,7 +49,7 @@ public class ConfirmedEvent extends Event
     public void loadFromResultSet( long eventId, int userId, DBResource dbResource, Connection conn, ResultSet rs ) throws SQLException
     {
         this.id = eventId;
-        this.creatorId = rs.getInt( "user_id" );
+        this.creatorId = rs.getInt( "creator_id" );
         this.activity = rs.getString( "activity" );
 
         Date date = rs.getDate( "date" );
@@ -61,6 +63,16 @@ public class ConfirmedEvent extends Event
         this.creatorDisplayName = participantMap.get( this.creatorId ).getUser().getDisplayName();
         this.participantList = new ArrayList<>( participantMap.values() );
         this.isPublic = rs.getBoolean( "is_public" );
+    }
+
+    public long getActivityId()
+    {
+        return activityId;
+    }
+
+    public void setActivityId( long activityId )
+    {
+        this.activityId = activityId;
     }
 
     public String getDate()

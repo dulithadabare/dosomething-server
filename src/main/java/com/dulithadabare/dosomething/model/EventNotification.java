@@ -5,6 +5,8 @@ public class EventNotification
     public static final int EVENT_INTEREST_NOTIFICATION = 1;
     public static final int VISIBILITY_REVEAL_NOTIFICATION = 2;
     public static final int EVENT_INVITE_NOTIFICATION = 3;
+    public static final int EVENT_ACCEPT_NOTIFICATION = 4;
+    public static final int EVENT_VISIBILITY_REQUEST = 5;
 
     private Event event;
     private int notificationType;

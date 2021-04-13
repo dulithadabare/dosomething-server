@@ -6,22 +6,33 @@ import java.util.List;
 public class FeedItem
 {
     private Event event;
+    private ConfirmedEvent confirmedEvent;
     private int interestedFriendCount;
     private int participatingFriendCount;
     private boolean isAnonymous;
     private boolean isInterested;
-    private List<UserProfile> interestedFriendList = new ArrayList<>();
+    private List<InterestedFriend> interestedFriendList = new ArrayList<>();
     private List<Integer> requestedFriendList = new ArrayList<>();
     private List<UserProfile> visibleFriendList = new ArrayList<>();
 
-    public Event getEventNeed()
+    public Event getEvent()
     {
         return event;
     }
 
-    public void setEventNeed( Event event )
+    public void setEvent( Event event )
     {
         this.event = event;
+    }
+
+    public ConfirmedEvent getConfirmedEvent()
+    {
+        return confirmedEvent;
+    }
+
+    public void setConfirmedEvent( ConfirmedEvent confirmedEvent )
+    {
+        this.confirmedEvent = confirmedEvent;
     }
 
     public boolean isAnonymous()
@@ -74,12 +85,12 @@ public class FeedItem
         this.visibleFriendList = visibleFriendList;
     }
 
-    public List<UserProfile> getInterestedFriendList()
+    public List<InterestedFriend> getInterestedFriendList()
     {
         return interestedFriendList;
     }
 
-    public void setInterestedFriendList( List<UserProfile> interestedFriendList )
+    public void setInterestedFriendList( List<InterestedFriend> interestedFriendList )
     {
         this.interestedFriendList = interestedFriendList;
     }

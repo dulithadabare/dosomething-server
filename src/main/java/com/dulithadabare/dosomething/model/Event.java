@@ -9,14 +9,15 @@ public class Event
     public int creatorId;
     public String creatorDisplayName;
     public String activity;
-    public boolean isConfirmed;
+    public boolean isActive;
     public int interestedCount;
 
     public void load( ResultSet rs ) throws SQLException
     {
         this.id = rs.getLong( "id" );
-        this.creatorId = rs.getInt( "user_id" );
+        this.creatorId = rs.getInt( "creator_id" );
         this.activity = rs.getString( "activity" );
+        this.isActive = rs.getBoolean( "is_active" );
     }
 
     private void loadOptionalParams( ResultSet rs )
@@ -79,14 +80,14 @@ public class Event
         this.activity = activity;
     }
 
-    public boolean isConfirmed()
+    public boolean isActive()
     {
-        return isConfirmed;
+        return isActive;
     }
 
-    public void setConfirmed( boolean confirmed )
+    public void setActive( boolean active )
     {
-        isConfirmed = confirmed;
+        isActive = active;
     }
 
     public int getInterestedCount()

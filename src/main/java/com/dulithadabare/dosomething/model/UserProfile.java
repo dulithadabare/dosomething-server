@@ -14,12 +14,10 @@ public class UserProfile
     private String firebaseUid;
     private String facebookId;
     private String displayName;
-    private String distance;
     @JsonIgnore
     private double longitude;
     @JsonIgnore
     private double latitude;
-    private boolean isVisibilityRequested;
 
     public UserProfile()
     {
@@ -94,26 +92,6 @@ public class UserProfile
         this.displayName = displayName;
     }
 
-    public String getDistance()
-    {
-        return distance;
-    }
-
-    public void setDistance( String distance )
-    {
-        this.distance = distance;
-    }
-
-    public boolean isVisibilityRequested()
-    {
-        return isVisibilityRequested;
-    }
-
-    public void setVisibilityRequested( boolean visibilityRequested )
-    {
-        isVisibilityRequested = visibilityRequested;
-    }
-
     public void loadUserProfileFromJwt( Jwt jwt )
     {
         JSONObject firebase = ((JSONObject)jwt.getClaims().get( "firebase" ));
@@ -127,11 +105,11 @@ public class UserProfile
     public void loadFromResultSet( ResultSet rs ) throws SQLException
     {
         this.userId = rs.getInt( "id" );
-        this.firebaseUid = rs.getString( "firebase_uid" );
-        this.facebookId = rs.getString( "facebook_id" );
+//        this.firebaseUid = rs.getString( "firebase_uid" );
+//        this.facebookId = rs.getString( "facebook_id" );
         this.displayName = rs.getString( "name" );
-        this.longitude = rs.getDouble( "longitude" );
-        this.latitude = rs.getDouble( "latitude" );
+//        this.longitude = rs.getDouble( "longitude" );
+//        this.latitude = rs.getDouble( "latitude" );
     }
 
 }
