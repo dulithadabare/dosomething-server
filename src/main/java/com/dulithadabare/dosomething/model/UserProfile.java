@@ -94,12 +94,23 @@ public class UserProfile
 
     public void loadUserProfileFromJwt( Jwt jwt )
     {
-        JSONObject firebase = ((JSONObject)jwt.getClaims().get( "firebase" ));
          this.firebaseUid = jwt.getClaimAsString( "user_id" );
-         this.facebookId = String.valueOf((( JSONArray )((JSONObject)firebase.get( "identities" )).get( "facebook.com" )).get( 0 ));
-        //TODO Cannot displayName from the JWT in Linking anonymous with Facebook flow
-         this.displayName = jwt.getClaimAsString( "name" );
          this.userId = jwt.getClaim( "sub" );
+    }
+
+    public void loadFacebookUserProfileFromJwt( Jwt jwt )
+    {
+        JSONObject firebase = ((JSONObject)jwt.getClaims().get( "firebase" ));
+        this.firebaseUid = jwt.getClaimAsString( "user_id" );
+        this.facebookId = String.valueOf((( JSONArray )((JSONObject)firebase.get( "identities" )).get( "facebook.com" )).get( 0 ));
+        this.displayName = jwt.getClaimAsString( "name" );
+        this.userId = jwt.getClaim( "sub" );
+    }
+
+    public void loadAnonymousUserProfileFromJwt( Jwt jwt )
+    {
+        this.firebaseUid = jwt.getClaimAsString( "user_id" );
+        this.userId = jwt.getClaim( "sub" );
     }
 
     public void loadFromResultSet( ResultSet rs ) throws SQLException
@@ -110,6 +121,16 @@ public class UserProfile
         this.displayName = rs.getString( "name" );
 //        this.longitude = rs.getDouble( "longitude" );
 //        this.latitude = rs.getDouble( "latitude" );
+    }
+
+    public void loadCompleteProfileFromResultSet( ResultSet rs ) throws SQLException
+    {
+        this.userId = rs.getInt( "id" );
+        this.firebaseUid = rs.getString( "firebase_uid" );
+        this.facebookId = rs.getString( "facebook_id" );
+        this.displayName = rs.getString( "name" );
+        this.longitude = rs.getDouble( "longitude" );
+        this.latitude = rs.getDouble( "latitude" );
     }
 
 }

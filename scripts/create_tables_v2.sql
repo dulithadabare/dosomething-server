@@ -6,11 +6,11 @@ CREATE SEQUENCE user_sequence START WITH 1 INCREMENT BY 1;
 
 CREATE TABLE IF NOT EXISTS user (
     id INT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR user_sequence),
-    facebook_id VARCHAR(20) NOT NULL,
+    facebook_id VARCHAR(20) DEFAULT NULL,
     firebase_uid VARCHAR(30) NOT NULL,
-    name VARCHAR(50),
-    longitude DOUBLE(15, 13),
-    latitude DOUBLE(15, 13)
+    name VARCHAR(50) DEFAULT NULL,
+    longitude DOUBLE(15, 13) DEFAULT NULL,
+    latitude DOUBLE(15, 13) DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS friend (

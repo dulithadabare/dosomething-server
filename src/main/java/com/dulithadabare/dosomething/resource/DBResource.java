@@ -1,5 +1,7 @@
 package com.dulithadabare.dosomething.resource;
 
+import com.dulithadabare.dosomething.facebook.PictureResponse;
+import com.dulithadabare.dosomething.facebook.PublicProfile;
 import com.dulithadabare.dosomething.model.*;
 import com.dulithadabare.dosomething.util.LocationHelper;
 import org.springframework.http.HttpEntity;
@@ -27,24 +29,23 @@ public class DBResource
             "( SELECT GROUP_CONCAT(vr.user_id) FROM visibility_request vr WHERE vr.friend_id = ? AND vr.event_id = en.id ) requested, " +
             "( SELECT GROUP_CONCAT(ei.user_id) FROM event_interested ei WHERE ei.event_id = en.id ) interested ";
 
-    public HttpEntity<BasicResponse> createUser( String facebookUserToken, UserProfile userProfile )
+    public HttpEntity<BasicResponse> createAnonymousUser( UserProfile userProfile )
     {
-        int newUserId = -1;
+        int newUserId;
+        UserProfile newUser;
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
             // Create User
 
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO user (facebook_id , firebase_uid, name) VALUES ( ?, ?, ? )" ) )
+            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO user ( firebase_uid ) VALUES ( ? )" ) )
             {
 
                 ps.setFetchSize( 1000 );
 
                 int count = 1;
 
-                ps.setString( count++, userProfile.getFacebookId() );
                 ps.setString( count++, userProfile.getFirebaseUid() );
-                ps.setString( count++, userProfile.getDisplayName() );
 
                 //execute query
                 ps.executeUpdate();
@@ -59,6 +60,45 @@ public class DBResource
             // Get created user id from DB
 
             newUserId = getLastCreatedValueForUser( conn );
+            newUser = getUserProfileById( newUserId, conn );
+        }
+        catch ( SQLException e )
+        {
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( newUser ) );
+    }
+
+    public HttpEntity<BasicResponse> linkWithFacebook( String facebookUserToken, UserProfile userProfile )
+    {
+        UserProfile updatedProfile;
+
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            // update user details from facebook
+
+//            PublicProfile publicProfile = facebookResource.getPublicProfile( userProfile.getFacebookId(), facebookUserToken );
+//            PictureResponse pictureResponse = facebookResource.getProfilePicture( userProfile.getFacebookId(), facebookUserToken );
+
+            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE user SET name = ? )" ) )
+            {
+
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+
+                ps.setString( count++, userProfile.getDisplayName() );
+
+                //execute query
+                ps.executeUpdate();
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+            }
 
             // Get User Friends from Facebook
 
@@ -142,10 +182,10 @@ public class DBResource
 
                 for ( String facebookId : facebookFriendList.keySet() )
                 {
-                    ps.setInt( count++, newUserId );
+                    ps.setInt( count++, userProfile.getUserId() );
                     ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
                     ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
-                    ps.setInt( count++, newUserId );
+                    ps.setInt( count++, userProfile.getUserId() );
                 }
 
                 //execute query
@@ -157,13 +197,15 @@ public class DBResource
                 e.printStackTrace();
                 return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
             }
+
+            updatedProfile = getUserProfileById( userProfile.getUserId(), conn );
         }
         catch ( SQLException e )
         {
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( newUserId ) );
+        return new HttpEntity<>( new BasicResponse( updatedProfile ) );
     }
 
     public HttpEntity<BasicResponse> getFeed( int userId )
@@ -197,7 +239,7 @@ public class DBResource
 
     public HttpEntity<BasicResponse> getConfirmedEvents( int userId )
     {
-        List<ConfirmedEvent> feedItemList;
+        List<ConfirmedEvent> confirmedEventList;
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
@@ -214,14 +256,14 @@ public class DBResource
 
             // Get events by friends
 
-            feedItemList = getConfirmedEventsByFriends( new ArrayList<>( friendIdList ), userId, conn );
+            confirmedEventList = getConfirmedEventsByFriends( new ArrayList<>( friendIdList ), userId, conn );
         }
         catch ( SQLException e )
         {
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( feedItemList ) );
+        return new HttpEntity<>( new BasicResponse( confirmedEventList ) );
     }
 
     public List<FeedItem> createEvent( Event event, int userId )
@@ -334,6 +376,7 @@ public class DBResource
 
                 int count = 1;
 
+                // Add event creator as participant
                 ps.setLong( count++, confirmedEventId );
                 ps.setInt( count++, userId );
 
@@ -1436,7 +1479,7 @@ public class DBResource
                 "i.user_id, " +
                 "u.name, " +
                 "en.id, " +
-                "en.activity,  " +
+                "en.activity  " +
                 "FROM accept_notification i, confirmed_event en, user u WHERE en.creator_id = ? AND i.event_id = en.id AND i.user_id = u.id";
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
@@ -2334,6 +2377,59 @@ public class DBResource
         }
 
         return friendUserIdList;
+    }
+
+    public UserProfile getUserProfileById( int userId )
+    {
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            return getUserProfileById( userId, conn );
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return new UserProfile(-1, null, null, null);
+    }
+
+    public UserProfile getUserProfileById( int userId, Connection conn )
+    {
+        UserProfile userProfile = null;
+
+        try ( PreparedStatement ps = conn.prepareStatement( "SELECT u.id, u.facebook_id, u.firebase_uid, u.name, u.latitude, u.longitude FROM user u WHERE u.id = ? " ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int pCount = 1;
+
+            ps.setInt( pCount++, userId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    userProfile = new UserProfile();
+                    userProfile.loadCompleteProfileFromResultSet( rs );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+
+        return userProfile;
     }
 
     public Map<Integer, UserProfile> getUserProfiles( List<Integer> userIdList )
