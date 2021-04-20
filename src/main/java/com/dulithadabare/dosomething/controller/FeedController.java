@@ -7,15 +7,26 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
-import java.sql.*;
-import java.util.*;
-import java.util.stream.Collectors;
-
 @RestController
 @RequestMapping( "/feeds" )
 public class FeedController
 {
     private final DBResource dbResource = new DBResource();
+
+    @CrossOrigin
+    @GetMapping( "/popular" )
+    public HttpEntity<BasicResponse> getPopularFeed( @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.getPopularTags( userProfile.getUserId() );
+    }
 
     @CrossOrigin
     @GetMapping( "" )

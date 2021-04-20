@@ -19,6 +19,29 @@ CREATE TABLE IF NOT EXISTS friend (
     PRIMARY KEY (user_id, friend_id)
 );
 
+CREATE SEQUENCE tag_sequence START WITH 1 INCREMENT BY 1;
+
+CREATE TABLE IF NOT EXISTS tag (
+    id BIGINT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR tag_sequence),
+    creator_id INT NOT NULL,
+    tag VARCHAR(100) NOT NULL,
+    description VARCHAR(500),
+    date DATE,
+    time TIME,
+    longitude DOUBLE(15, 13),
+    latitude DOUBLE(15, 13),
+    is_active BOOL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS current_activity (
+    creator_id INT NOT NULL,
+    tag VARCHAR(100) NOT NULL,
+    description VARCHAR(200),
+    updated_time TIMESTAMP
+    PRIMARY KEY (creator_id)
+--    code_name VARCHAR(30) NOT NULL
+);
+
 CREATE SEQUENCE event_sequence START WITH 1 INCREMENT BY 1;
 
 CREATE TABLE IF NOT EXISTS event (
@@ -30,12 +53,21 @@ CREATE TABLE IF NOT EXISTS event (
     time TIME,
     longitude DOUBLE(15, 13),
     latitude DOUBLE(15, 13),
-    is_active BOOL DEFAULT TRUE
+    is_active BOOL DEFAULT TRUE,
+    timestamp TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS popular_tag (
+    tag VARCHAR(100),
+    involved_count INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (tag)
+--    code_name VARCHAR(30) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS event_interested (
     event_id BIGINT NOT NULL,
     user_id INT NOT NULL,
+    description VARCHAR(100),
     PRIMARY KEY (event_id, user_id)
 --    code_name VARCHAR(30) NOT NULL
 );
@@ -78,7 +110,8 @@ CREATE TABLE IF NOT EXISTS confirmed_event (
     time TIME,
     longitude DOUBLE(15, 13),
     latitude DOUBLE(15, 13),
-    is_public BOOL DEFAULT FALSE
+    is_public BOOL DEFAULT FALSE,
+    timestamp TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS event_participant (
@@ -112,6 +145,8 @@ CREATE TABLE IF NOT EXISTS accept_notification (
 
 ALTER TABLE friend ADD CONSTRAINT friend_user_id_fk FOREIGN KEY (user_id) REFERENCES user(id);
 ALTER TABLE friend ADD CONSTRAINT friend_friend_id_fk FOREIGN KEY (friend_id) REFERENCES user(id);
+
+ALTER TABLE current_activity ADD CONSTRAINT current_activity_user_fk FOREIGN KEY (creator_id) REFERENCES user(id);
 
 ALTER TABLE event ADD CONSTRAINT event_user_fk FOREIGN KEY (creator_id) REFERENCES user(id);
 

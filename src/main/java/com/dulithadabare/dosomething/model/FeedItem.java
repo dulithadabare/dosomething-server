@@ -1,8 +1,5 @@
 package com.dulithadabare.dosomething.model;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class FeedItem
 {
     private Event event;
@@ -11,9 +8,10 @@ public class FeedItem
     private int participatingFriendCount;
     private boolean isAnonymous;
     private boolean isInterested;
-    private List<InterestedFriend> interestedFriendList = new ArrayList<>();
-    private List<Integer> requestedFriendList = new ArrayList<>();
-    private List<UserProfile> visibleFriendList = new ArrayList<>();
+    private boolean isCreatorFriend;
+    private boolean isFriendInterested;
+    private boolean isInvited;
+    private boolean isParticipant;
 
     public Event getEvent()
     {
@@ -75,33 +73,43 @@ public class FeedItem
         isInterested = interested;
     }
 
-    public List<UserProfile> getVisibleFriendList()
+    public boolean isCreatorFriend()
     {
-        return visibleFriendList;
+        return isCreatorFriend;
     }
 
-    public void setVisibleFriendList( List<UserProfile> visibleFriendList )
+    public void setCreatorFriend( boolean creatorFriend )
     {
-        this.visibleFriendList = visibleFriendList;
+        isCreatorFriend = creatorFriend;
     }
 
-    public List<InterestedFriend> getInterestedFriendList()
+    public boolean isFriendInterested()
     {
-        return interestedFriendList;
+        return isFriendInterested;
     }
 
-    public void setInterestedFriendList( List<InterestedFriend> interestedFriendList )
+    public void setFriendInterested( boolean friendInterested )
     {
-        this.interestedFriendList = interestedFriendList;
+        isFriendInterested = friendInterested;
     }
 
-    public List<Integer> getRequestedFriendList()
+    public boolean isInvited()
     {
-        return requestedFriendList;
+        return isInvited;
     }
 
-    public void setRequestedFriendList( List<Integer> requestedFriendList )
+    public void setInvited( boolean invited )
     {
-        this.requestedFriendList = requestedFriendList;
+        isInvited = invited;
+    }
+
+    public boolean isParticipant()
+    {
+        return isParticipant;
+    }
+
+    public void setParticipant( boolean participant )
+    {
+        isParticipant = participant;
     }
 }

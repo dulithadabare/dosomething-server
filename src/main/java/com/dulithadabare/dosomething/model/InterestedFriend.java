@@ -3,6 +3,7 @@ package com.dulithadabare.dosomething.model;
 public class InterestedFriend
 {
     private UserProfile user;
+    private String description;
     private String distance;
     private boolean isVisibilityRequested;
 
@@ -14,6 +15,16 @@ public class InterestedFriend
     public void setUser( UserProfile user )
     {
         this.user = user;
+    }
+
+    public String getDescription()
+    {
+        return description;
+    }
+
+    public void setDescription( String description )
+    {
+        this.description = description;
     }
 
     public String getDistance()

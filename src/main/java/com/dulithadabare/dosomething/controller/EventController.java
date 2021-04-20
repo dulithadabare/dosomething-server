@@ -22,9 +22,12 @@ public class EventController
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
 
-        List<FeedItem> createdEvent = dbResource.createEvent( event, userProfile.getUserId() );
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
 
-        return new HttpEntity<>( new BasicResponse( createdEvent ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.createEvent( event, userProfile.getUserId() ) ) );
     }
 
     @CrossOrigin
@@ -34,9 +37,12 @@ public class EventController
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
 
-        ConfirmedEvent confirmedEvent = dbResource.createConfirmedEvent( event, userProfile.getUserId() );
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
 
-        return new HttpEntity<>( new BasicResponse( confirmedEvent ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.createConfirmedEvent( event, userProfile.getUserId() ) ) );
     }
 
     @CrossOrigin
@@ -46,9 +52,12 @@ public class EventController
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
 
-        ConfirmedEvent confirmedEvent = dbResource.updateConfirmedEvent( event, userProfile.getUserId() );
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
 
-        return new HttpEntity<>( new BasicResponse( confirmedEvent ) );
+        return new HttpEntity<>( new BasicResponse(  dbResource.updateConfirmedEvent( event, userProfile.getUserId() ) ) );
     }
 
     @CrossOrigin
@@ -69,6 +78,25 @@ public class EventController
     }
 
     @CrossOrigin
+    @GetMapping( "/tags/{tag}" )
+    public HttpEntity<BasicResponse> getEventsByTag( @PathVariable String tag, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        String hashTag = "#" + tag;
+
+        List<FeedItem> feedModelList = dbResource.getEventsByTag( userProfile.getUserId(), hashTag );
+
+        return new HttpEntity<>( new BasicResponse( feedModelList ) );
+    }
+
+    @CrossOrigin
     @GetMapping( "/{eventId}" )
     public HttpEntity<BasicResponse> getEventById( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt )
     {
@@ -84,8 +112,8 @@ public class EventController
     }
 
     @CrossOrigin
-    @PostMapping( "/{eventId}/users" )
-    public HttpEntity<BasicResponse> addEventInterest( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt  )
+    @GetMapping( "/confirmed-events/{eventId}" )
+    public HttpEntity<BasicResponse> getConfirmedEventById( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -95,9 +123,25 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        List<FeedItem> updatedEvent = dbResource.addEventInterest( eventId, userProfile.getUserId(), false );
+        return new HttpEntity<>( new BasicResponse( dbResource.getConfirmedEventById(  eventId, userProfile.getUserId() ) ));
+    }
 
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+    @CrossOrigin
+    @PostMapping( "/{eventId}/users" )
+    public HttpEntity<BasicResponse> addEventInterest( @PathVariable long eventId, @RequestBody EventInterest eventInterest, @AuthenticationPrincipal Jwt jwt  )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        eventInterest.setEventId( eventId );
+        eventInterest.setUserId( userProfile.getUserId() );
+
+        return new HttpEntity<>( new BasicResponse( dbResource.addEventInterest( eventId, userProfile.getUserId(), eventInterest, false ) ) );
     }
 
     @CrossOrigin
@@ -112,9 +156,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        List<FeedItem> updatedEvent = dbResource.removeEventInterest( eventId, userProfile.getUserId() );
-
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.removeEventInterest( eventId, userProfile.getUserId() ) ) );
     }
 
     @CrossOrigin
@@ -129,9 +171,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        List<FeedItem> updatedEvent = dbResource.sendVisibilityRequest( eventId, userProfile.getUserId(), friendId );
-
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.sendVisibilityRequest( eventId, userProfile.getUserId(), friendId ) ) );
     }
 
     @CrossOrigin
@@ -146,9 +186,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        List<FeedItem> updatedEvent = dbResource.addEventVisibility( eventId, userProfile.getUserId(), friendId );
-
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.addEventVisibility( eventId, userProfile.getUserId(), friendId ) ) );
     }
 
     @CrossOrigin
@@ -163,9 +201,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        ConfirmedEvent updatedEvent = dbResource.acceptEventInvite( eventId, userProfile.getUserId(), creatorId );
-
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.acceptEventInvite( eventId, userProfile.getUserId(), creatorId ) ) );
     }
 
     @CrossOrigin
@@ -180,9 +216,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        List<FeedItem> updatedEvent = dbResource.removeEventVisibility( eventId, userProfile.getUserId() );
-
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.removeEventVisibility( eventId, userProfile.getUserId() ) ) );
     }
 
 }

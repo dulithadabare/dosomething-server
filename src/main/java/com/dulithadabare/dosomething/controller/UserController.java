@@ -44,6 +44,16 @@ public class UserController
     }
 
     @CrossOrigin
+    @GetMapping( "/current-activity" )
+    public HttpEntity<BasicResponse> getCurrentActivity( @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile authUser = new UserProfile();
+        authUser.loadAnonymousUserProfileFromJwt( jwt );
+
+        return new HttpEntity<>( new BasicResponse( dbResource.getCurrentActivityById( authUser.getUserId() ) ) );
+    }
+
+    @CrossOrigin
     @PutMapping( "/location" )
     public HttpEntity<BasicResponse> updateUserLocation( @RequestBody UserLocation userLocation, @AuthenticationPrincipal Jwt jwt )
     {

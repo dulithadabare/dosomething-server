@@ -13,8 +13,6 @@ public class ConfirmedEvent extends Event
     private String date;
     private String time;
     public boolean isPublic;
-    public boolean isInvited;
-    public boolean isParticipating;
     public List<EventParticipant> participantList;
     private int participantCount;
 
@@ -29,6 +27,8 @@ public class ConfirmedEvent extends Event
         this.id = rs.getLong( "id" );
         this.creatorId = rs.getInt( "creator_id" );
         this.activity = rs.getString( "activity" );
+        this.description = rs.getString( "description" );
+        this.timestamp = rs.getTimestamp( "timestamp" ).getTime();
 
         Date date = rs.getDate( "date" );
         Time time = rs.getTime( "time" );
@@ -103,26 +103,6 @@ public class ConfirmedEvent extends Event
     public void setPublic( boolean aPublic )
     {
         isPublic = aPublic;
-    }
-
-    public boolean isInvited()
-    {
-        return isInvited;
-    }
-
-    public void setInvited( boolean invited )
-    {
-        isInvited = invited;
-    }
-
-    public boolean isParticipating()
-    {
-        return isParticipating;
-    }
-
-    public void setParticipating( boolean participating )
-    {
-        isParticipating = participating;
     }
 
     public int getParticipantCount()

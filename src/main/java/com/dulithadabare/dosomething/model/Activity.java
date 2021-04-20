@@ -3,42 +3,32 @@ package com.dulithadabare.dosomething.model;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-public class Event
+public class Activity
 {
-    public long id;
     public int creatorId;
     public String creatorDisplayName;
-    public String activity;
+    public String tag;
     public String description;
     public boolean isActive;
-    public int interestedCount;
-    public long timestamp;
+    public long updatedTime;
 
     public void load( ResultSet rs ) throws SQLException
     {
-        this.id = rs.getLong( "id" );
         this.creatorId = rs.getInt( "creator_id" );
-        this.activity = rs.getString( "activity" );
+//        this.creatorDisplayName = rs.getString( "creator_name" );
+        this.tag = rs.getString( "tag" );
         this.description = rs.getString( "description" );
         this.isActive = rs.getBoolean( "is_active" );
-        this.timestamp = rs.getTimestamp( "timestamp" ).getTime();
+        this.updatedTime = rs.getTimestamp( "timestamp" ).getTime();
     }
 
-    public long getId()
+    public int getCreatorId()
     {
-        return id;
-    }
-
-    public void setId( long id )
-    {
-        this.id = id;
-    }
-
-    public int getCreatorId() {
         return creatorId;
     }
 
-    public void setCreatorId( int creatorId ) {
+    public void setCreatorId( int creatorId )
+    {
         this.creatorId = creatorId;
     }
 
@@ -52,14 +42,14 @@ public class Event
         this.creatorDisplayName = creatorDisplayName;
     }
 
-    public String getActivity()
+    public String getTag()
     {
-        return activity;
+        return tag;
     }
 
-    public void setActivity( String activity )
+    public void setTag( String tag )
     {
-        this.activity = activity;
+        this.tag = tag;
     }
 
     public String getDescription()
@@ -82,23 +72,13 @@ public class Event
         isActive = active;
     }
 
-    public int getInterestedCount()
+    public long getUpdatedTime()
     {
-        return interestedCount;
+        return updatedTime;
     }
 
-    public void setInterestedCount( int interestedCount )
+    public void setUpdatedTime( long updatedTime )
     {
-        this.interestedCount = interestedCount;
-    }
-
-    public long getTimestamp()
-    {
-        return timestamp;
-    }
-
-    public void setTimestamp( long timestamp )
-    {
-        this.timestamp = timestamp;
+        this.updatedTime = updatedTime;
     }
 }
