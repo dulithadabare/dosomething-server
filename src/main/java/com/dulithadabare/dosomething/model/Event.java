@@ -8,9 +8,9 @@ public class Event
     public long id;
     public int creatorId;
     public String creatorDisplayName;
-    public String activity;
+    public String tag;
     public String description;
-    public boolean isActive;
+    public boolean isConfirmed;
     public int interestedCount;
     public long timestamp;
 
@@ -18,9 +18,9 @@ public class Event
     {
         this.id = rs.getLong( "id" );
         this.creatorId = rs.getInt( "creator_id" );
-        this.activity = rs.getString( "activity" );
+        this.tag = rs.getString( "activity" );
         this.description = rs.getString( "description" );
-        this.isActive = rs.getBoolean( "is_active" );
+        this.isConfirmed = rs.getBoolean( "is_confirmed" );
         this.timestamp = rs.getTimestamp( "timestamp" ).getTime();
     }
 
@@ -52,14 +52,14 @@ public class Event
         this.creatorDisplayName = creatorDisplayName;
     }
 
-    public String getActivity()
+    public String getTag()
     {
-        return activity;
+        return tag;
     }
 
-    public void setActivity( String activity )
+    public void setTag( String tag )
     {
-        this.activity = activity;
+        this.tag = tag;
     }
 
     public String getDescription()
@@ -72,14 +72,14 @@ public class Event
         this.description = description;
     }
 
-    public boolean isActive()
+    public boolean isConfirmed()
     {
-        return isActive;
+        return isConfirmed;
     }
 
-    public void setActive( boolean active )
+    public void setConfirmed( boolean confirmed )
     {
-        isActive = active;
+        isConfirmed = confirmed;
     }
 
     public int getInterestedCount()

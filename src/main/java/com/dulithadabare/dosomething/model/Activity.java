@@ -5,61 +5,36 @@ import java.sql.SQLException;
 
 public class Activity
 {
-    public int creatorId;
-    public String creatorDisplayName;
-    public String tag;
-    public String description;
-    public boolean isActive;
-    public long updatedTime;
+    private int userId;
+    private long eventId;
+    private boolean isActive;
+    private long updatedTime;
 
     public void load( ResultSet rs ) throws SQLException
     {
-        this.creatorId = rs.getInt( "creator_id" );
-//        this.creatorDisplayName = rs.getString( "creator_name" );
-        this.tag = rs.getString( "tag" );
-        this.description = rs.getString( "description" );
-        this.isActive = rs.getBoolean( "is_active" );
-        this.updatedTime = rs.getTimestamp( "timestamp" ).getTime();
+        this.userId = rs.getInt( "user_id" );
+        this.eventId = rs.getLong( "event_id" );
+        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
     }
 
-    public int getCreatorId()
+    public int getUserId()
     {
-        return creatorId;
+        return userId;
     }
 
-    public void setCreatorId( int creatorId )
+    public void setUserId( int userId )
     {
-        this.creatorId = creatorId;
+        this.userId = userId;
     }
 
-    public String getCreatorDisplayName()
+    public long getEventId()
     {
-        return creatorDisplayName;
+        return eventId;
     }
 
-    public void setCreatorDisplayName( String creatorDisplayName )
+    public void setEventId( long eventId )
     {
-        this.creatorDisplayName = creatorDisplayName;
-    }
-
-    public String getTag()
-    {
-        return tag;
-    }
-
-    public void setTag( String tag )
-    {
-        this.tag = tag;
-    }
-
-    public String getDescription()
-    {
-        return description;
-    }
-
-    public void setDescription( String description )
-    {
-        this.description = description;
+        this.eventId = eventId;
     }
 
     public boolean isActive()

@@ -2,7 +2,6 @@ package com.dulithadabare.dosomething.controller;
 
 import com.dulithadabare.dosomething.model.Activity;
 import com.dulithadabare.dosomething.model.BasicResponse;
-import com.dulithadabare.dosomething.model.Event;
 import com.dulithadabare.dosomething.model.UserProfile;
 import com.dulithadabare.dosomething.resource.DBResource;
 import org.springframework.http.HttpEntity;
@@ -19,7 +18,7 @@ public class ActivityController
 
     @CrossOrigin
     @PostMapping( "" )
-    public HttpEntity<BasicResponse> addCurrentActivity( @RequestBody Activity activity, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> startCurrentActivity( @RequestBody Activity activity, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -29,12 +28,12 @@ public class ActivityController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.addCurrentActivity( activity, userProfile.getUserId() );
+        return dbResource.startCurrentActivity( activity, userProfile.getUserId() );
     }
 
     @CrossOrigin
     @DeleteMapping( "" )
-    public HttpEntity<BasicResponse> removeCurrentActivity( @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> stopCurrentActivity( @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -44,6 +43,6 @@ public class ActivityController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.removeCurrentActivity( userProfile.getUserId() );
+        return dbResource.stopCurrentActivity( userProfile.getUserId() );
     }
 }

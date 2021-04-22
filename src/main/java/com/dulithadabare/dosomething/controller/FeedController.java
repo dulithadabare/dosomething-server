@@ -40,12 +40,12 @@ public class FeedController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getFeed( userProfile.getUserId() );
+        return dbResource.getActivityFeed( userProfile.getUserId() );
     }
 
     @CrossOrigin
-    @GetMapping( "/confirmed-events" )
-    public HttpEntity<BasicResponse> getConfirmedEventFeed( @AuthenticationPrincipal Jwt jwt )
+    @GetMapping( "/upcoming" )
+    public HttpEntity<BasicResponse> getUpcomingEventFeed( @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -55,7 +55,7 @@ public class FeedController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getConfirmedEvents( userProfile.getUserId() );
+        return dbResource.getUpcomingEvents( userProfile.getUserId() );
     }
 
 }

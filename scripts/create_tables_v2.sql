@@ -24,22 +24,7 @@ CREATE SEQUENCE tag_sequence START WITH 1 INCREMENT BY 1;
 CREATE TABLE IF NOT EXISTS tag (
     id BIGINT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR tag_sequence),
     creator_id INT NOT NULL,
-    tag VARCHAR(100) NOT NULL,
-    description VARCHAR(500),
-    date DATE,
-    time TIME,
-    longitude DOUBLE(15, 13),
-    latitude DOUBLE(15, 13),
-    is_active BOOL DEFAULT TRUE
-);
-
-CREATE TABLE IF NOT EXISTS current_activity (
-    creator_id INT NOT NULL,
-    tag VARCHAR(100) NOT NULL,
-    description VARCHAR(200),
-    updated_time TIMESTAMP
-    PRIMARY KEY (creator_id)
---    code_name VARCHAR(30) NOT NULL
+    tag VARCHAR(100) NOT NULL
 );
 
 CREATE SEQUENCE event_sequence START WITH 1 INCREMENT BY 1;
@@ -53,7 +38,7 @@ CREATE TABLE IF NOT EXISTS event (
     time TIME,
     longitude DOUBLE(15, 13),
     latitude DOUBLE(15, 13),
-    is_active BOOL DEFAULT TRUE,
+    is_confirmed BOOL DEFAULT FALSE,
     timestamp TIMESTAMP
 );
 
@@ -111,6 +96,7 @@ CREATE TABLE IF NOT EXISTS confirmed_event (
     longitude DOUBLE(15, 13),
     latitude DOUBLE(15, 13),
     is_public BOOL DEFAULT FALSE,
+    is_happening BOOL DEFAULT FALSE,
     timestamp TIMESTAMP
 );
 
@@ -143,10 +129,16 @@ CREATE TABLE IF NOT EXISTS accept_notification (
     PRIMARY KEY (event_id, user_id)
 );
 
+
+CREATE TABLE IF NOT EXISTS current_activity (
+    event_id BIGINT NOT NULL,
+    user_id INT NOT NULL,
+    updated_time TIMESTAMP,
+    PRIMARY KEY (user_id)
+);
+
 ALTER TABLE friend ADD CONSTRAINT friend_user_id_fk FOREIGN KEY (user_id) REFERENCES user(id);
 ALTER TABLE friend ADD CONSTRAINT friend_friend_id_fk FOREIGN KEY (friend_id) REFERENCES user(id);
-
-ALTER TABLE current_activity ADD CONSTRAINT current_activity_user_fk FOREIGN KEY (creator_id) REFERENCES user(id);
 
 ALTER TABLE event ADD CONSTRAINT event_user_fk FOREIGN KEY (creator_id) REFERENCES user(id);
 
@@ -183,3 +175,6 @@ ALTER TABLE event_invite ADD CONSTRAINT receiver_id_user_fk FOREIGN KEY (receive
 
 ALTER TABLE accept_notification ADD CONSTRAINT accept_notification_need_fk FOREIGN KEY (event_id) REFERENCES confirmed_event(id);
 ALTER TABLE accept_notification ADD CONSTRAINT accept_notification_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
+
+ALTER TABLE current_activity ADD CONSTRAINT current_activity_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
+ALTER TABLE current_activity ADD CONSTRAINT current_activity_event_fk FOREIGN KEY (event_id) REFERENCES confirmed_event(id);

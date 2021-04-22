@@ -9,16 +9,17 @@ import java.util.Map;
 
 public class ConfirmedEvent extends Event
 {
-    private long activityId;
+    private long eventId;
     private String date;
     private String time;
     public boolean isPublic;
+    public boolean isHappening;
     public List<EventParticipant> participantList;
     private int participantCount;
 
     public ConfirmedEvent()
     {
-        this.isActive = true;
+        this.isConfirmed = true;
     }
 
     @Override
@@ -26,7 +27,7 @@ public class ConfirmedEvent extends Event
     {
         this.id = rs.getLong( "id" );
         this.creatorId = rs.getInt( "creator_id" );
-        this.activity = rs.getString( "activity" );
+        this.tag = rs.getString( "activity" );
         this.description = rs.getString( "description" );
         this.timestamp = rs.getTimestamp( "timestamp" ).getTime();
 
@@ -37,12 +38,14 @@ public class ConfirmedEvent extends Event
         this.time = time != null ? time.toString() : null;
 
         this.isPublic = rs.getBoolean( "is_public" );
+        this.isHappening = rs.getBoolean( "is_happening" );
     }
 
     public void loadPrivateEvent( ResultSet rs ) throws SQLException
     {
         this.id = rs.getLong( "id" );
-        this.activity = rs.getString( "activity" );
+        this.tag = rs.getString( "activity" );
+        this.isHappening = rs.getBoolean( "is_happening" );
         this.creatorId = -1;
     }
 
@@ -50,7 +53,7 @@ public class ConfirmedEvent extends Event
     {
         this.id = eventId;
         this.creatorId = rs.getInt( "creator_id" );
-        this.activity = rs.getString( "activity" );
+        this.tag = rs.getString( "activity" );
 
         Date date = rs.getDate( "date" );
         Time time = rs.getTime( "time" );
@@ -65,14 +68,14 @@ public class ConfirmedEvent extends Event
         this.isPublic = rs.getBoolean( "is_public" );
     }
 
-    public long getActivityId()
+    public long getEventId()
     {
-        return activityId;
+        return eventId;
     }
 
-    public void setActivityId( long activityId )
+    public void setEventId( long eventId )
     {
-        this.activityId = activityId;
+        this.eventId = eventId;
     }
 
     public String getDate()
