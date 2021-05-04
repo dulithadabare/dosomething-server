@@ -1,12 +1,11 @@
 package com.dulithadabare.dosomething.model;
 
-public class FeedItem
+public class UpcomingFeedItem
 {
     private Event event;
     private ConfirmedEvent confirmedEvent;
     private int interestedFriendCount;
     private int participatingFriendCount;
-    private boolean isAnonymous;
     private boolean isShowInterestEnabled;
     private boolean isInterested;
     private boolean isCreatorFriend;
@@ -32,16 +31,6 @@ public class FeedItem
     public void setConfirmedEvent( ConfirmedEvent confirmedEvent )
     {
         this.confirmedEvent = confirmedEvent;
-    }
-
-    public boolean isAnonymous()
-    {
-        return isAnonymous;
-    }
-
-    public void setAnonymous( boolean anonymous )
-    {
-        isAnonymous = anonymous;
     }
 
     public int getInterestedFriendCount()
@@ -124,3 +113,4 @@ public class FeedItem
         isParticipant = participant;
     }
 }
+

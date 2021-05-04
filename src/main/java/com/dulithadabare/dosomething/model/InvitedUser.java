@@ -1,12 +1,14 @@
 package com.dulithadabare.dosomething.model;
 
-public class InterestedFriend
+public class InvitedUser
 {
     private UserProfile user;
-    private String description;
+    private int userId;
+    private boolean isConfirmed;
     private String distance;
     private String relationship;
     private boolean isVisibilityRequested;
+    private boolean isFriend;
 
     public UserProfile getUser()
     {
@@ -18,14 +20,24 @@ public class InterestedFriend
         this.user = user;
     }
 
-    public String getDescription()
+    public int getUserId()
     {
-        return description;
+        return userId;
     }
 
-    public void setDescription( String description )
+    public void setUserId( int userId )
     {
-        this.description = description;
+        this.userId = userId;
+    }
+
+    public boolean isConfirmed()
+    {
+        return isConfirmed;
+    }
+
+    public void setConfirmed( boolean confirmed )
+    {
+        isConfirmed = confirmed;
     }
 
     public String getDistance()
@@ -56,5 +68,15 @@ public class InterestedFriend
     public void setVisibilityRequested( boolean visibilityRequested )
     {
         isVisibilityRequested = visibilityRequested;
+    }
+
+    public boolean isFriend()
+    {
+        return isFriend;
+    }
+
+    public void setFriend( boolean friend )
+    {
+        isFriend = friend;
     }
 }

@@ -40,7 +40,7 @@ public class UserController
         UserProfile authUser = new UserProfile();
         authUser.loadAnonymousUserProfileFromJwt( jwt );
 
-        return new HttpEntity<>( new BasicResponse( dbResource.getUserProfileById( authUser.getUserId() ) ) );
+        return new HttpEntity<>( new BasicResponse( dbResource.getCompleteUserProfileById( authUser.getUserId() ) ) );
     }
 
     @CrossOrigin

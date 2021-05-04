@@ -1,11 +1,8 @@
 package com.dulithadabare.dosomething.model;
 
-import java.util.List;
-
-public class ActivityItem
+public class HappeningFeedItem
 {
     private ConfirmedEvent event;
-    private List<UserProfile> activeFriendList;
     private int activeFriendCount;
     private boolean isInvited;
     private boolean isParticipant;
@@ -19,16 +16,6 @@ public class ActivityItem
     public void setEvent( ConfirmedEvent event )
     {
         this.event = event;
-    }
-
-    public List<UserProfile> getActiveFriendList()
-    {
-        return activeFriendList;
-    }
-
-    public void setActiveFriendList( List<UserProfile> activeFriendList )
-    {
-        this.activeFriendList = activeFriendList;
     }
 
     public int getActiveFriendCount()

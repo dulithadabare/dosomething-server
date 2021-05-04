@@ -5,14 +5,17 @@ import java.sql.SQLException;
 
 public class Event
 {
-    public long id;
-    public int creatorId;
-    public String creatorDisplayName;
-    public String tag;
-    public String description;
-    public boolean isConfirmed;
-    public int interestedCount;
-    public long timestamp;
+    protected long id;
+    protected int creatorId;
+    protected String creatorDisplayName;
+    protected String tag;
+    protected String description;
+    protected boolean isCancelled;
+    protected boolean isConfirmed;
+    protected int interestedCount;
+    protected int visibilityPreference;
+    protected int interestPreference;
+    protected long createdTime;
 
     public void load( ResultSet rs ) throws SQLException
     {
@@ -20,8 +23,11 @@ public class Event
         this.creatorId = rs.getInt( "creator_id" );
         this.tag = rs.getString( "activity" );
         this.description = rs.getString( "description" );
+        this.isCancelled = rs.getBoolean( "is_cancelled" );
         this.isConfirmed = rs.getBoolean( "is_confirmed" );
-        this.timestamp = rs.getTimestamp( "timestamp" ).getTime();
+        this.visibilityPreference = rs.getInt( "visibility_preference" );
+        this.interestPreference = rs.getInt( "interest_preference" );
+        this.createdTime = rs.getTimestamp( "timestamp" ).getTime();
     }
 
     public long getId()
@@ -72,6 +78,16 @@ public class Event
         this.description = description;
     }
 
+    public boolean isCancelled()
+    {
+        return isCancelled;
+    }
+
+    public void setCancelled( boolean cancelled )
+    {
+        isCancelled = cancelled;
+    }
+
     public boolean isConfirmed()
     {
         return isConfirmed;
@@ -92,13 +108,33 @@ public class Event
         this.interestedCount = interestedCount;
     }
 
-    public long getTimestamp()
+    public int getVisibilityPreference()
     {
-        return timestamp;
+        return visibilityPreference;
     }
 
-    public void setTimestamp( long timestamp )
+    public void setVisibilityPreference( int visibilityPreference )
     {
-        this.timestamp = timestamp;
+        this.visibilityPreference = visibilityPreference;
+    }
+
+    public int getInterestPreference()
+    {
+        return interestPreference;
+    }
+
+    public void setInterestPreference( int interestPreference )
+    {
+        this.interestPreference = interestPreference;
+    }
+
+    public long getCreatedTime()
+    {
+        return createdTime;
+    }
+
+    public void setCreatedTime( long createdTime )
+    {
+        this.createdTime = createdTime;
     }
 }

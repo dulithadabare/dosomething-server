@@ -14,7 +14,8 @@ public class ConfirmedEvent extends Event
     private String time;
     public boolean isPublic;
     public boolean isHappening;
-    public List<EventParticipant> participantList;
+    public List<InvitedUser> participantList;
+    public List<InvitedUser> removedInvitedUserList;
     private int participantCount;
 
     public ConfirmedEvent()
@@ -26,10 +27,11 @@ public class ConfirmedEvent extends Event
     public void load( ResultSet rs ) throws SQLException
     {
         this.id = rs.getLong( "id" );
+        this.eventId = rs.getLong( "event_id" );
         this.creatorId = rs.getInt( "creator_id" );
         this.tag = rs.getString( "activity" );
         this.description = rs.getString( "description" );
-        this.timestamp = rs.getTimestamp( "timestamp" ).getTime();
+        this.createdTime = rs.getTimestamp( "timestamp" ).getTime();
 
         Date date = rs.getDate( "date" );
         Time time = rs.getTime( "time" );
@@ -37,6 +39,7 @@ public class ConfirmedEvent extends Event
         this.date = date != null ? date.toString() : null;
         this.time = time != null ? time.toString() : null;
 
+        this.visibilityPreference = rs.getInt( "visibility_preference" );
         this.isPublic = rs.getBoolean( "is_public" );
         this.isHappening = rs.getBoolean( "is_happening" );
     }
@@ -47,25 +50,6 @@ public class ConfirmedEvent extends Event
         this.tag = rs.getString( "activity" );
         this.isHappening = rs.getBoolean( "is_happening" );
         this.creatorId = -1;
-    }
-
-    public void loadFromResultSet( long eventId, int userId, DBResource dbResource, Connection conn, ResultSet rs ) throws SQLException
-    {
-        this.id = eventId;
-        this.creatorId = rs.getInt( "creator_id" );
-        this.tag = rs.getString( "activity" );
-
-        Date date = rs.getDate( "date" );
-        Time time = rs.getTime( "time" );
-
-        this.date = date.toString();
-        this.time = time.toString();
-
-        Map<Integer, EventParticipant> participantMap = dbResource.getEventParticipants( eventId, conn );
-
-        this.creatorDisplayName = participantMap.get( this.creatorId ).getUser().getDisplayName();
-        this.participantList = new ArrayList<>( participantMap.values() );
-        this.isPublic = rs.getBoolean( "is_public" );
     }
 
     public long getEventId()
@@ -108,6 +92,16 @@ public class ConfirmedEvent extends Event
         isPublic = aPublic;
     }
 
+    public boolean isHappening()
+    {
+        return isHappening;
+    }
+
+    public void setHappening( boolean happening )
+    {
+        isHappening = happening;
+    }
+
     public int getParticipantCount()
     {
         return participantCount;
@@ -118,13 +112,23 @@ public class ConfirmedEvent extends Event
         this.participantCount = participantCount;
     }
 
-    public List<EventParticipant> getParticipantList()
+    public List<InvitedUser> getParticipantList()
     {
         return participantList;
     }
 
-    public void setParticipantList( List<EventParticipant> participantList )
+    public void setParticipantList( List<InvitedUser> participantList )
     {
         this.participantList = participantList;
+    }
+
+    public List<InvitedUser> getRemovedInvitedUserList()
+    {
+        return removedInvitedUserList;
+    }
+
+    public void setRemovedInvitedUserList( List<InvitedUser> removedInvitedUserList )
+    {
+        this.removedInvitedUserList = removedInvitedUserList;
     }
 }

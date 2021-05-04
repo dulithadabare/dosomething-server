@@ -1,19 +1,20 @@
 package com.dulithadabare.dosomething.model;
 
-public class EventParticipant
+public class EventInvited
 {
-    private UserProfile user;
+    private long eventId;
     private int userId;
+    private String description;
     private boolean isConfirmed;
 
-    public UserProfile getUser()
+    public long getEventId()
     {
-        return user;
+        return eventId;
     }
 
-    public void setUser( UserProfile user )
+    public void setEventId( long eventId )
     {
-        this.user = user;
+        this.eventId = eventId;
     }
 
     public int getUserId()
@@ -26,6 +27,16 @@ public class EventParticipant
         this.userId = userId;
     }
 
+    public String getDescription()
+    {
+        return description;
+    }
+
+    public void setDescription( String description )
+    {
+        this.description = description;
+    }
+
     public boolean isConfirmed()
     {
         return isConfirmed;
@@ -36,3 +47,4 @@ public class EventParticipant
         isConfirmed = confirmed;
     }
 }
+

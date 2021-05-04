@@ -2,11 +2,11 @@ package com.dulithadabare.dosomething.model;
 
 import java.util.List;
 
-public class ActivityFeedItem
+public class HappeningTagGroup
 {
     private String tag;
     private int activeFriendCount;
-    private List<ActivityItem> activityItemList;
+    private List<HappeningFeedItem> happeningFeedItemList;
 
     public String getTag()
     {
@@ -28,13 +28,13 @@ public class ActivityFeedItem
         this.activeFriendCount = activeFriendCount;
     }
 
-    public List<ActivityItem> getActivityItemList()
+    public List<HappeningFeedItem> getHappeningFeedItemList()
     {
-        return activityItemList;
+        return happeningFeedItemList;
     }
 
-    public void setActivityItemList( List<ActivityItem> activityItemList )
+    public void setHappeningFeedItemList( List<HappeningFeedItem> happeningFeedItemList )
     {
-        this.activityItemList = activityItemList;
+        this.happeningFeedItemList = happeningFeedItemList;
     }
 }

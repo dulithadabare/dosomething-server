@@ -18,6 +18,12 @@ public class UserProfile
     private double longitude;
     @JsonIgnore
     private double latitude;
+    @JsonIgnore
+    private int highSchoolId;
+    @JsonIgnore
+    private int universityId;
+    @JsonIgnore
+    private int workPLaceId;
 
     public UserProfile()
     {
@@ -92,6 +98,36 @@ public class UserProfile
         this.displayName = displayName;
     }
 
+    public int getHighSchoolId()
+    {
+        return highSchoolId;
+    }
+
+    public void setHighSchoolId( int highSchoolId )
+    {
+        this.highSchoolId = highSchoolId;
+    }
+
+    public int getUniversityId()
+    {
+        return universityId;
+    }
+
+    public void setUniversityId( int universityId )
+    {
+        this.universityId = universityId;
+    }
+
+    public int getWorkPLaceId()
+    {
+        return workPLaceId;
+    }
+
+    public void setWorkPLaceId( int workPLaceId )
+    {
+        this.workPLaceId = workPLaceId;
+    }
+
     public void loadUserProfileFromJwt( Jwt jwt )
     {
          this.firebaseUid = jwt.getClaimAsString( "user_id" );
@@ -131,6 +167,9 @@ public class UserProfile
         this.displayName = rs.getString( "name" );
         this.longitude = rs.getDouble( "longitude" );
         this.latitude = rs.getDouble( "latitude" );
+        this.highSchoolId = rs.getInt( "high_school_id" );
+        this.universityId = rs.getInt( "university_id" );
+        this.workPLaceId = rs.getInt( "work_place_id" );
     }
 
 }

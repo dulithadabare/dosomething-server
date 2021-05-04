@@ -7,10 +7,11 @@ public class EventResponse
 {
     private Event event;
     private ConfirmedEvent confirmedEvent;
-    private List<InterestedFriend> interestedFriendList = new ArrayList<>();
+    private int interestedFriendCount;
     private boolean isInterested;
     private boolean isInvited;
     private boolean isParticipant;
+    private boolean isCreatorFriend;
 
     public Event getEvent()
     {
@@ -32,14 +33,14 @@ public class EventResponse
         this.confirmedEvent = confirmedEvent;
     }
 
-    public List<InterestedFriend> getInterestedFriendList()
+    public int getInterestedFriendCount()
     {
-        return interestedFriendList;
+        return interestedFriendCount;
     }
 
-    public void setInterestedFriendList( List<InterestedFriend> interestedFriendList )
+    public void setInterestedFriendCount( int interestedFriendCount )
     {
-        this.interestedFriendList = interestedFriendList;
+        this.interestedFriendCount = interestedFriendCount;
     }
 
     public boolean isInterested()
@@ -70,5 +71,15 @@ public class EventResponse
     public void setParticipant( boolean participant )
     {
         isParticipant = participant;
+    }
+
+    public boolean isCreatorFriend()
+    {
+        return isCreatorFriend;
+    }
+
+    public void setCreatorFriend( boolean creatorFriend )
+    {
+        isCreatorFriend = creatorFriend;
     }
 }
