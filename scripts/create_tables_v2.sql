@@ -102,6 +102,13 @@ CREATE TABLE IF NOT EXISTS confirmed_event (
     timestamp TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS event_join_request (
+    event_id BIGINT NOT NULL,
+    requester_id INT NOT NULL,
+    created_time TIMESTAMP,
+    PRIMARY KEY (event_id, requester_id)
+);
+
 CREATE TABLE IF NOT EXISTS event_participant (
     event_id BIGINT NOT NULL,
     user_id INT NOT NULL,
@@ -116,13 +123,6 @@ CREATE TABLE IF NOT EXISTS event_invite (
     receiver_id INT NOT NULL,
     PRIMARY KEY (event_id, sender_id, receiver_id)
 --    code_name VARCHAR(30) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS participant_visibility (
-    event_id BIGINT NOT NULL,
-    user_id INT NOT NULL,
-    friend_id INT NOT NULL,
-    PRIMARY KEY (event_id, user_id, friend_id)
 );
 
 CREATE TABLE IF NOT EXISTS accept_notification (
@@ -225,12 +225,11 @@ ALTER TABLE visibility_notification ADD CONSTRAINT visibility_notification_frien
 ALTER TABLE confirmed_event ADD CONSTRAINT confirmed_event_event_fk FOREIGN KEY (event_id) REFERENCES event(id);
 ALTER TABLE confirmed_event ADD CONSTRAINT confirmed_creator_fk FOREIGN KEY (creator_id) REFERENCES user(id);
 
+ALTER TABLE event_join_request ADD CONSTRAINT event_join_event_fk FOREIGN KEY (event_id) REFERENCES confirmed_event(id);
+ALTER TABLE event_join_request ADD CONSTRAINT event_join_user_fk FOREIGN KEY (requester_id) REFERENCES user(id);
+
 ALTER TABLE event_participant ADD CONSTRAINT event_participant_need_fk FOREIGN KEY (event_id) REFERENCES confirmed_event(id);
 ALTER TABLE event_participant ADD CONSTRAINT event_participant_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
-
-ALTER TABLE participant_visibility ADD CONSTRAINT participant_visibility_need_fk FOREIGN KEY (event_id) REFERENCES confirmed_event(id);
-ALTER TABLE participant_visibility ADD CONSTRAINT participant_visibility_user_fk FOREIGN KEY (user_id) REFERENCES user(id);
-ALTER TABLE participant_visibility ADD CONSTRAINT participant_visibility_friend_fk FOREIGN KEY (friend_id) REFERENCES user(id);
 
 ALTER TABLE event_invite ADD CONSTRAINT invite_event_fk FOREIGN KEY (event_id) REFERENCES confirmed_event(id);
 ALTER TABLE event_invite ADD CONSTRAINT sender_user_fk FOREIGN KEY (sender_id) REFERENCES user(id);

@@ -257,7 +257,7 @@ public class DBResource
 
             // load friend profiles
 
-            Map<Integer, UserProfile> friendProfileMap = getUserProfiles( friendIdList, conn );
+            Map<Integer, UserProfile> friendProfileMap = getUserProfileByList( friendIdList, conn );
 
             //Load current activity for user
 
@@ -1172,8 +1172,10 @@ public class DBResource
                     boolean isPublic = rs.getBoolean( "is_public" );
 
                     Map<Integer, EventInvited> invitedMap = getEventInvited( eventId, conn );
+                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByEventId( eventId, conn );
 
                     boolean isInvited = invitedMap.containsKey( userId );
+                    boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
                     boolean isParticipating = false;
 
                     if ( isInvited )
@@ -1207,6 +1209,7 @@ public class DBResource
                     eventResponse.setConfirmedEvent( event );
                     eventResponse.setInvited( isInvited );
                     eventResponse.setParticipant( isParticipating );
+                    eventResponse.setJoinRequested( isJoinRequested );
                     event.setParticipantCount( participantCount );
                 }
 
@@ -1604,7 +1607,7 @@ public class DBResource
         return updatedEvent;
     }
 
-    public void confirmEventParticipation( long eventId, int userId, Connection conn )
+    public void confirmEventParticipation( long eventId, int participantId, Connection conn )
     {
         // Add new interested user to the event
 
@@ -1616,7 +1619,7 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, eventId );
-            ps.setInt( count++, userId );
+            ps.setInt( count++, participantId );
 
             //execute query
             ps.executeUpdate();
@@ -1627,6 +1630,7 @@ public class DBResource
             e.printStackTrace();
         }
     }
+
     public HttpEntity<BasicResponse> cancelEventParticipation( long eventId, int userId )
     {
         EventResponse updatedEvent;
@@ -1666,6 +1670,207 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
+    public HttpEntity<BasicResponse> addJoinRequest( long eventId, int userId, long updatedTime )
+    {
+        EventResponse updatedEvent;
+
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            // Add new join request
+
+            try ( PreparedStatement ps = conn.prepareStatement( "INSERT IGNORE INTO event_join_request ( event_id, requester_id, created_time ) VALUES ( ?, ?, ? )" ) )
+            {
+
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+
+                ps.setLong( count++, eventId );
+                ps.setInt( count++, userId );
+                ps.setTimestamp( count++, new Timestamp( updatedTime ) );
+
+                //execute query
+                ps.executeUpdate();
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+            }
+
+            //TODO add notification
+
+            // Load updated event
+            updatedEvent = getConfirmedEventById( eventId, userId, conn );
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+    }
+
+    public HttpEntity<BasicResponse> removeJoinRequest( long eventId, int userId )
+    {
+        EventResponse updatedEvent;
+
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            // Add new join request
+            updatedEvent = removeJoinRequest( eventId, userId, conn );
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+    }
+
+    public EventResponse removeJoinRequest( long eventId, int requesterId, Connection conn )
+    {
+        EventResponse updatedEvent;
+
+        // Add new join request
+        try ( PreparedStatement ps = conn.prepareStatement( "DELETE FROM event_join_request WHERE event_id = ? AND requester_id = ?" ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, eventId );
+            ps.setInt( count++, requesterId );
+
+            //execute query
+            ps.executeUpdate();
+
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        // Load updated event
+        updatedEvent = getConfirmedEventById( eventId, requesterId, conn );
+
+        return updatedEvent;
+    }
+
+    public HttpEntity<BasicResponse> getJoinRequests( long eventId )
+    {
+        List<JoinRequest> joinRequestList = new ArrayList<>();
+
+        Map<Integer, EventJoinRequest> eventJoinRequestMap;
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            // Get Join Requests
+            eventJoinRequestMap = getEventJoinRequestsByEventId( eventId, conn );
+
+            Map<Integer, UserProfile> joinRequestedUserMap = getUserProfileByList( new ArrayList<>( eventJoinRequestMap.keySet() ), conn );
+
+            for ( EventJoinRequest eventJoinRequest : eventJoinRequestMap.values() )
+            {
+                UserProfile user = joinRequestedUserMap.get( eventJoinRequest.getUserId() );
+                JoinRequest joinRequest = new JoinRequest( user, eventJoinRequest.getEventId(), eventJoinRequest.getCreatedTime() );
+
+                joinRequestList.add( joinRequest );
+            }
+
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( joinRequestList ) );
+    }
+
+    public Map<Integer, EventJoinRequest> getEventJoinRequestsByEventId( long eventId, Connection conn )
+    {
+        Map<Integer, EventJoinRequest> eventJoinRequestMap = new HashMap<>();
+
+        String selectSql = "SELECT " +
+                "jr.event_id, " +
+                "jr.requester_id, " +
+                "jr.created_time " +
+                "FROM event_join_request jr WHERE jr.event_id = ?";
+
+        try ( PreparedStatement ps = conn.prepareStatement( selectSql ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, eventId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+
+                    long jrConfirmedEventId = rs.getLong( col++ );
+                    int requesterId = rs.getInt( col++ );
+                    long createdTime = rs.getTimestamp( col++ ).getTime();
+
+                    EventJoinRequest eventJoinRequest = new EventJoinRequest();
+                    eventJoinRequest.setEventId( jrConfirmedEventId );
+                    eventJoinRequest.setUserId( requesterId );
+                    eventJoinRequest.setCreatedTime( createdTime );
+
+                    eventJoinRequestMap.put( requesterId, eventJoinRequest );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return eventJoinRequestMap;
+    }
+
+    public HttpEntity<BasicResponse> acceptJoinRequest( long confirmedEventId, int requesterId )
+    {
+        EventResponse updatedEvent = null;
+
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            // Add event participation
+            addEventInvitedUser( confirmedEventId, requesterId, conn );
+            confirmEventParticipation( confirmedEventId, requesterId, conn );
+
+            // Remove join request
+            updatedEvent = removeJoinRequest( confirmedEventId, requesterId, conn );
+
+            //TODO NOTIFICATION to requester
+
+            // update event tag
+            updatePopularConfirmedEvent( updatedEvent.getConfirmedEvent(), conn );
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+    }
 
     public EventResponse addEventInterest( long eventId, int userId, EventInterest eventInterest, long updatedTime )
     {
@@ -3829,7 +4034,45 @@ public class DBResource
         return interestedFriendMap;
     }
 
-    public Map<Integer, UserProfile> getUserProfiles( List<Integer> userIdList, Connection conn )
+    public UserProfile getUserProfileById( int userId, Connection conn )
+    {
+        UserProfile userProfile = null;
+
+        try ( PreparedStatement ps = conn.prepareStatement( "SELECT u.id, u.name FROM user u WHERE u.id = ?" ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int pCount = 1;
+
+            ps.setInt( pCount++, userId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    userProfile = new UserProfile();
+                    userProfile.loadFromResultSet( rs );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return userProfile;
+    }
+
+    public Map<Integer, UserProfile> getUserProfileByList( List<Integer> userIdList, Connection conn )
     {
         Map<Integer, UserProfile> userProfileList = new HashMap<>();
 
@@ -4184,7 +4427,7 @@ public class DBResource
         // Get created event id
         List<Integer> userIdList = new ArrayList<>();
         userIdList.add( userId );
-        updatedProfile.add( getUserProfiles( userIdList, conn ).get( userId ) );
+        updatedProfile.add( getUserProfileByList( userIdList, conn ).get( userId ) );
 
         return updatedProfile;
     }

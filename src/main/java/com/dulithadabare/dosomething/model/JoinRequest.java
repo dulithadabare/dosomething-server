@@ -3,7 +3,15 @@ package com.dulithadabare.dosomething.model;
 public class JoinRequest
 {
     private UserProfile user;
-    private Event event;
+    private long eventId;
+    private long createdTime;
+
+    public JoinRequest( UserProfile user, long eventId, long createdTime )
+    {
+        this.user = user;
+        this.eventId = eventId;
+        this.createdTime = createdTime;
+    }
 
     public UserProfile getUser()
     {
@@ -15,13 +23,23 @@ public class JoinRequest
         this.user = user;
     }
 
-    public Event getEventNeed()
+    public long getEventId()
     {
-        return event;
+        return eventId;
     }
 
-    public void setEventNeed( Event event )
+    public void setEventId( long eventId )
     {
-        this.event = event;
+        this.eventId = eventId;
+    }
+
+    public long getCreatedTime()
+    {
+        return createdTime;
+    }
+
+    public void setCreatedTime( long createdTime )
+    {
+        this.createdTime = createdTime;
     }
 }

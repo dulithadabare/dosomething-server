@@ -277,7 +277,67 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.cancelEventParticipation( eventId, userProfile.getUserId() ) ) );
+        return dbResource.cancelEventParticipation( eventId, userProfile.getUserId() );
+    }
+
+    @CrossOrigin
+    @PostMapping( "/{eventId}/join" )
+    public HttpEntity<BasicResponse> addJoinRequest( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt, @RequestParam(name = "timestamp") long timestamp  )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.addJoinRequest( eventId, userProfile.getUserId(), timestamp );
+    }
+
+    @CrossOrigin
+    @DeleteMapping( "/{eventId}/join" )
+    public HttpEntity<BasicResponse> removeJoinRequest( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt  )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.removeJoinRequest( eventId, userProfile.getUserId() );
+    }
+
+    @CrossOrigin
+    @GetMapping( "/{eventId}/join" )
+    public HttpEntity<BasicResponse> getJoinRequests( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.getJoinRequests( eventId );
+    }
+
+    @CrossOrigin
+    @PutMapping( "/{eventId}/join/{requesterId}" )
+    public HttpEntity<BasicResponse> acceptJoinRequest( @PathVariable long eventId, @PathVariable int requesterId, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.acceptJoinRequest( eventId, requesterId );
     }
 
     @CrossOrigin

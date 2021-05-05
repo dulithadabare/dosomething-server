@@ -12,6 +12,7 @@ public class EventResponse
     private boolean isInvited;
     private boolean isParticipant;
     private boolean isCreatorFriend;
+    private boolean isJoinRequested;
 
     public Event getEvent()
     {
@@ -81,5 +82,15 @@ public class EventResponse
     public void setCreatorFriend( boolean creatorFriend )
     {
         isCreatorFriend = creatorFriend;
+    }
+
+    public boolean isJoinRequested()
+    {
+        return isJoinRequested;
+    }
+
+    public void setJoinRequested( boolean joinRequested )
+    {
+        isJoinRequested = joinRequested;
     }
 }
