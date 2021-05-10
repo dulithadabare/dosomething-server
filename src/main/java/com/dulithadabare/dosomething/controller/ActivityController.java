@@ -1,6 +1,6 @@
 package com.dulithadabare.dosomething.controller;
 
-import com.dulithadabare.dosomething.model.Activity;
+import com.dulithadabare.dosomething.model.CurrentActivity;
 import com.dulithadabare.dosomething.model.BasicResponse;
 import com.dulithadabare.dosomething.model.UserProfile;
 import com.dulithadabare.dosomething.resource.DBResource;
@@ -13,12 +13,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping( "/activities" )
 public class ActivityController
 {
-
     private final DBResource dbResource = new DBResource();
 
     @CrossOrigin
     @PostMapping( "" )
-    public HttpEntity<BasicResponse> startCurrentActivity( @RequestBody Activity activity, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> startCurrentActivity( @RequestBody CurrentActivity currentActivity, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -28,12 +27,12 @@ public class ActivityController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.startCurrentActivity( activity, userProfile.getUserId() );
+        return dbResource.startCurrentActivity( currentActivity, userProfile.getUserId() );
     }
 
     @CrossOrigin
     @DeleteMapping( "" )
-    public HttpEntity<BasicResponse> stopCurrentActivity( @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> stopCurrentActivity( @RequestBody CurrentActivity currentActivity, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -43,6 +42,6 @@ public class ActivityController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.stopCurrentActivity( userProfile.getUserId() );
+        return dbResource.stopCurrentActivity( currentActivity, userProfile.getUserId() );
     }
 }

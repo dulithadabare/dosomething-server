@@ -15,7 +15,7 @@ public class FeedController
 
     @CrossOrigin
     @PostMapping( "/popular" )
-    public HttpEntity<BasicResponse> getPopularFeed( @RequestBody PopularRequest popularRequest, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getPopularFeed( @RequestBody PopularFeedRequest popularRequest, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -25,7 +25,7 @@ public class FeedController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getPopularTags( popularRequest.getCurrTimestamp() );
+        return dbResource.getPopularNearbyFeed( popularRequest, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -55,7 +55,7 @@ public class FeedController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getUpcomingEvents( userProfile.getUserId() );
+        return dbResource.getUpcomingFeed( userProfile.getUserId() );
     }
 
 }

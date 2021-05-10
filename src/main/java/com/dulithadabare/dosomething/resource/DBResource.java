@@ -39,8 +39,35 @@ public class DBResource
             " ce.visibility_preference, " +
             " ce.is_public, " +
             " ce.is_happening, " +
+            " ce.is_cancelled, " +
             " ce.timestamp " +
             "FROM confirmed_event ce ";
+
+    class ActiveEvent
+    {
+        private long eventId;
+        private List<CurrentActivity> currentActivityList;
+
+        public long getEventId()
+        {
+            return eventId;
+        }
+
+        public void setEventId( long eventId )
+        {
+            this.eventId = eventId;
+        }
+
+        public List<CurrentActivity> getCurrentActivityList()
+        {
+            return currentActivityList;
+        }
+
+        public void setCurrentActivityList( List<CurrentActivity> currentActivityList )
+        {
+            this.currentActivityList = currentActivityList;
+        }
+    }
 
     public HttpEntity<BasicResponse> createAnonymousUser( UserProfile userProfile )
     {
@@ -151,9 +178,9 @@ public class DBResource
                 {
                     //position result to first
 
-                    int col = 1;
                     while ( rs.next() )
                     {
+                        int col = 1;
                         int id = rs.getInt( col++ );
                         String facebookId = rs.getString( col++ );
 
@@ -221,6 +248,58 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedProfile ) );
     }
 
+    public HttpEntity<BasicResponse> getPopularNearbyFeed( PopularFeedRequest popularFeedRequest, int userId )
+    {
+        List<PopularNearbyFeedItem> popularNearbyFeedItemList;
+
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            // Update friend list from facebook
+            // updateFriendList();
+
+            // Get Friend User Profiles from DB
+            List<Integer> friendIdList = getFriendIdList( userId, conn );
+
+            // Get active  events by friends
+            Map<Long, List<CurrentActivity>> activeEventMap = loadPopularActivityList( popularFeedRequest, conn );
+            List<ActiveEvent> activeEventList = new ArrayList<>();
+
+            for ( Long activeEventId : activeEventMap.keySet() )
+            {
+                ActiveEvent activeEvent = new ActiveEvent();
+                activeEvent.setEventId( activeEventId );
+                activeEvent.setCurrentActivityList( activeEventMap.get( activeEventId ) );
+
+                activeEventList.add( activeEvent );
+            }
+
+            // Sort current active events by active user count DESC
+            activeEventList.sort( ( o1, o2 ) -> Integer.compare( o2.currentActivityList.size(), o1.currentActivityList.size() ) );
+
+            // Get the top 20 most active events
+            List<ActiveEvent> popularActiveEventList = new ArrayList<>();
+            for ( int i = 0; i < 20 && i < activeEventList.size() ; i++ )
+            {
+                popularActiveEventList.add( activeEventList.get( i ) );
+            }
+
+            // Get list of popular event Ids
+            List<Long> eventIdSet = popularActiveEventList.stream().map( ActiveEvent::getEventId ).collect( Collectors.toList());
+
+            popularNearbyFeedItemList = loadPopularNearbyFeedItemList( eventIdSet, friendIdList, activeEventMap, userId, conn );
+        }
+        catch ( SQLException e )
+        {
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        // Sort event by active count DESC.
+        // The event with the most active users will be the first in the list.
+        popularNearbyFeedItemList.sort( (o1, o2) -> Long.compare( o2.getActiveCount(), o1.getActiveCount() ) );
+
+        return new HttpEntity<>( new BasicResponse( popularNearbyFeedItemList ) );
+    }
+
     public HttpEntity<BasicResponse> getHappeningFeed( int userId )
     {
         List<HappeningTagGroup> tagGroupList = new ArrayList<>();
@@ -240,7 +319,7 @@ public class DBResource
 
             // Get active  events by friends
 
-            Map<Long, List<Integer>> activeFriendMap = getFriendActivity( new ArrayList<>( friendIdList ), userId, conn );
+            Map<Long, List<CurrentActivity>> activeFriendMap = loadCurrentActivityByFriendList( new ArrayList<>( friendIdList ), userId, conn );
 
             // Get list of confirmed events
 
@@ -250,18 +329,11 @@ public class DBResource
 
             List<EventResponse> eventResponseList = new ArrayList<>();
 
+            //TODO PERFORMANCE load all events at once
             for ( Long eventId : eventIdSet )
             {
-                eventResponseList.add( getConfirmedEventById( eventId, userId, conn ) );
+                eventResponseList.add( loadConfirmedEventById( eventId, userId, conn ) );
             }
-
-            // load friend profiles
-
-            Map<Integer, UserProfile> friendProfileMap = getUserProfileByList( friendIdList, conn );
-
-            //Load current activity for user
-
-            Activity currActivity = getCurrentActivityById( userId );
 
             Map<String, List<HappeningFeedItem>> tagMap = new HashMap<>();
 
@@ -269,16 +341,23 @@ public class DBResource
             {
                 ConfirmedEvent event = eventResponse.getConfirmedEvent();
 
-                List<Integer> activeUserList = activeFriendMap.get( event.getId() );
-                List<Integer> activeFriendList = activeUserList.stream().filter( friendIdList::contains ).collect( Collectors.toList());
+                Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( event.getId(), conn );
+
+                List<CurrentActivity> activeUserList = activeFriendMap.get( event.getId() );
+                List<CurrentActivity> friendActivityList = activeUserList.stream().filter( e -> friendIdList.contains( e.getUserId() ) ).collect( Collectors.toList());
+                // Sort by updated time ASC ( First updated time will be the first in the list)
+                activeUserList.sort( Comparator.comparingLong( CurrentActivity::getUpdatedTime ) );
+                long firstActiveTimestamp = activeUserList.get( 0 ).getUpdatedTime();
 
                 HappeningFeedItem happeningFeedItem = new HappeningFeedItem();
-                happeningFeedItem.setEvent( event );
-                happeningFeedItem.setActiveFriendCount( activeFriendList.size() );
+                happeningFeedItem.setConfirmedEvent( event );
+                happeningFeedItem.setActiveCount( activeUserList.size() );
+                happeningFeedItem.setActiveFriendCount( friendActivityList.size() );
                 happeningFeedItem.setInvited( eventResponse.isInvited() );
                 happeningFeedItem.setParticipant( eventResponse.isParticipant() );
-                boolean isActiveInEvent = currActivity != null && currActivity.getEventId() == event.getId();
-                happeningFeedItem.setActive( isActiveInEvent );
+                happeningFeedItem.setCreatorFriend( friendIdList.contains( event.getCreatorId() ) );
+                happeningFeedItem.setJoinRequested( eventJoinRequestMap.containsKey( userId ) );
+                happeningFeedItem.setFirstActiveTimestamp( firstActiveTimestamp );
 
                 List<HappeningFeedItem> happeningFeedItemList = new ArrayList<>();
                 happeningFeedItemList.add( happeningFeedItem );
@@ -293,18 +372,23 @@ public class DBResource
             for ( String tag : tagMap.keySet() )
             {
                 List<HappeningFeedItem> happeningFeedItemList = tagMap.get( tag );
+                // Sort Happening Feed Items by firstActiveTimestamp DESC. Latest item will be the first in the list.
+                happeningFeedItemList.sort( (o1, o2) -> Long.compare( o2.getFirstActiveTimestamp(), o1.getFirstActiveTimestamp() ) );
 
                 HappeningTagGroup tagGroup = new HappeningTagGroup();
                 tagGroup.setTag( tag );
                 tagGroup.setHappeningFeedItemList( happeningFeedItemList );
 
+                int activeCount = 0;
                 int activeFriendCount = 0;
 
                 for ( HappeningFeedItem happeningFeedItem : happeningFeedItemList )
                 {
+                    activeCount += happeningFeedItem.getActiveCount();
                     activeFriendCount += happeningFeedItem.getActiveFriendCount();
                 }
 
+                tagGroup.setActiveCount( activeCount );
                 tagGroup.setActiveFriendCount( activeFriendCount );
 
                 tagGroupList.add( tagGroup );
@@ -315,10 +399,14 @@ public class DBResource
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
+        // Sort tag group by active friend count DESC.
+        // The tag Group with the most active friends will be the first in the list.
+        tagGroupList.sort( (o1, o2) -> Long.compare( o2.getActiveFriendCount(), o1.getActiveFriendCount() ) );
+
         return new HttpEntity<>( new BasicResponse( tagGroupList ) );
     }
 
-    public HttpEntity<BasicResponse> getUpcomingEvents( int userId )
+    public HttpEntity<BasicResponse> getUpcomingFeed( int userId )
     {
         List<UpcomingFeedItem> feedItemList = new ArrayList<>();
 
@@ -361,32 +449,12 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( feedItemList ) );
     }
 
-    public HttpEntity<BasicResponse> startCurrentActivity( Activity activity, int userId )
+    public HttpEntity<BasicResponse> startCurrentActivity( CurrentActivity activity, int userId )
     {
-        Activity currentActivity = null;
+        CurrentActivity currentActivity = null;
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
-            // Start event
-
-            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE confirmed_event SET is_happening = TRUE WHERE id = ?" ) )
-            {
-                ps.setFetchSize( 1000 );
-
-                int count = 1;
-
-                ps.setLong( count++, activity.getEventId() );
-
-                //execute query
-                ps.executeUpdate();
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-            }
-
             // Start activity in the event
 
             try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO current_activity (" +
@@ -411,23 +479,23 @@ public class DBResource
 
                 //execute query
                 ps.executeUpdate();
-
-                //get current activity
-                currentActivity = getCurrentActivityById( userId, conn );
-
-                // update event tag
-                updatePopularActiveEvent( currentActivity, conn );
-
-                // update user activity history
-                updateUserActivityHistory( currentActivity, conn );
-
             }
             catch ( SQLException e )
             {
                 e.printStackTrace();
                 return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
             }
+            //get current activity
+            currentActivity = getCurrentActivityByUserId( userId, conn );
 
+            // update event tag
+            updatePopularActiveEvent( currentActivity, conn );
+
+            // update user activity history
+            updateUserActivityHistory( currentActivity, conn );
+
+            // Update confirmed event status
+            updateConfirmedEventHappeningStatus(activity.getEventId(), conn);
         }
         catch ( SQLException e )
         {
@@ -438,19 +506,20 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( currentActivity ) );
     }
 
-    public HttpEntity<BasicResponse> stopCurrentActivity( int userId )
+    public HttpEntity<BasicResponse> stopCurrentActivity( CurrentActivity currentActivity, int userId )
     {
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
             // Remove event interested user
 
-            try ( PreparedStatement ps = conn.prepareStatement( "DELETE FROM current_activity WHERE user_id = ?" ) )
+            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE current_activity SET event_id = NULL, updated_time = ? WHERE user_id = ?" ) )
             {
 
                 ps.setFetchSize( 1000 );
 
                 int count = 1;
 
+                ps.setTimestamp( count++, new Timestamp( currentActivity.getUpdatedTime() ) );
                 ps.setInt( count++, userId );
 
                 //execute query
@@ -463,6 +532,8 @@ public class DBResource
                 return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
             }
 
+            // Update confirmed event status
+            updateConfirmedEventHappeningStatus( currentActivity.getEventId(), conn);
         }
         catch ( SQLException e )
         {
@@ -473,9 +544,72 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( userId ) );
     }
 
-    public Activity updateUserActivityHistory( Activity activity, Connection conn )
+    // TODO Check if this Read and Update operation can cause errors such as incorrectly marking the event is not
+    //  happening due to transaction isolation?
+    public void updateConfirmedEventHappeningStatus( long confirmedEventId, Connection conn )
     {
-        Activity currentActivity;
+        int activeCount = 0;
+
+        // get current active count for event
+
+        try ( PreparedStatement ps = conn.prepareStatement( "SELECT COUNT(*) FROM current_activity ca WHERE ca.event_id = ?" ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, confirmedEventId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    activeCount = rs.getInt( col++ );
+                }
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        boolean isHappening = false;
+
+        if( activeCount > 0 )
+        {
+            isHappening = true;
+        }
+
+        try ( PreparedStatement ps = conn.prepareStatement( "UPDATE confirmed_event SET is_happening = ? WHERE id = ?" ) )
+        {
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setBoolean( count++, isHappening );
+            ps.setLong( count++, confirmedEventId );
+
+            //execute query
+            ps.executeUpdate();
+
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public CurrentActivity updateUserActivityHistory( CurrentActivity activity, Connection conn )
+    {
+        CurrentActivity currentActivity;
 
         // Start event
 
@@ -512,11 +646,11 @@ public class DBResource
         return activity;
     }
 
-    public Activity getCurrentActivityById( int userId )
+    public CurrentActivity getCurrentActivityByUserId( int userId )
     {
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
-            return getCurrentActivityById( userId, conn );
+            return getCurrentActivityByUserId( userId, conn );
         }
         catch ( SQLException e )
         {
@@ -526,9 +660,9 @@ public class DBResource
         return null;
     }
 
-    public Activity getCurrentActivityById( int userId, Connection conn )
+    public CurrentActivity getCurrentActivityByUserId( int userId, Connection conn )
     {
-        Activity activity = null;
+        CurrentActivity currentActivity = null;
 
         String sqlSb = "SELECT " +
                 "ca.user_id, " +
@@ -553,8 +687,8 @@ public class DBResource
 
                 while ( rs.next() )
                 {
-                    activity = new Activity();
-                    activity.load( rs );
+                    currentActivity = new CurrentActivity();
+                    currentActivity.load( rs );
                 }
 
             }
@@ -569,12 +703,12 @@ public class DBResource
         }
 
 
-        return activity;
+        return currentActivity;
     }
 
-    public Map<Integer, List<Activity>> getRecentUserActivityHistory( List<Integer> userIdList, Connection conn )
+    public Map<Integer, List<CurrentActivity>> getRecentUserActivityHistory( List<Integer> userIdList, Connection conn )
     {
-        Map<Integer, List<Activity>> activityMap = new HashMap<>();
+        Map<Integer, List<CurrentActivity>> activityMap = new HashMap<>();
 
         // init map
         for ( Integer userId : userIdList )
@@ -625,13 +759,13 @@ public class DBResource
 
                 while ( rs.next() )
                 {
-                    Activity activity = new Activity();
-                    activity.load( rs );
+                    CurrentActivity currentActivity = new CurrentActivity();
+                    currentActivity.load( rs );
 
-                    List<Activity> activityList = new ArrayList<>();
-                    activityList.add( activity );
+                    List<CurrentActivity> currentActivityList = new ArrayList<>();
+                    currentActivityList.add( currentActivity );
 
-                    activityMap.merge( activity.getUserId(), activityList, ( old, curr) -> {
+                    activityMap.merge( currentActivity.getUserId(), currentActivityList, ( old, curr) -> {
                         old.addAll( curr );
                         return old;
                     } );
@@ -651,9 +785,9 @@ public class DBResource
         return activityMap;
     }
 
-    public List<Activity> getRecentUserActivityHistoryById( int userId, Connection conn )
+    public List<CurrentActivity> getRecentUserActivityHistoryById( int userId, Connection conn )
     {
-        List<Activity> activityList = new ArrayList<>();
+        List<CurrentActivity> currentActivityList = new ArrayList<>();
 
         String sqlSb = "SELECT " +
                 "uah.user_id, " +
@@ -679,10 +813,10 @@ public class DBResource
 
                 while ( rs.next() )
                 {
-                    Activity activity = new Activity();
-                    activity.load( rs );
+                    CurrentActivity currentActivity = new CurrentActivity();
+                    currentActivity.load( rs );
 
-                    activityList.add( activity );
+                    currentActivityList.add( currentActivity );
                 }
 
             }
@@ -696,7 +830,7 @@ public class DBResource
             e.printStackTrace();
         }
 
-        return activityList;
+        return currentActivityList;
     }
 
     public EventResponse createEvent( Event event, int userId )
@@ -878,7 +1012,7 @@ public class DBResource
             }
 
             //Load event
-            createdEvent = getConfirmedEventById( confirmedEventId, userId, conn );
+            createdEvent = loadConfirmedEventById( confirmedEventId, userId, conn );
             // update event tag
             updatePopularConfirmedEvent( createdEvent.getConfirmedEvent(), conn );
         }
@@ -934,7 +1068,7 @@ public class DBResource
             removeEventInvitedUserByList( confirmedEvent.getId(), confirmedEvent.getRemovedInvitedUserList(), conn );
 
             //Load updated event
-            updatedEvent = getConfirmedEventById( confirmedEvent.getId(), userId, conn );
+            updatedEvent = loadConfirmedEventById( confirmedEvent.getId(), userId, conn );
         }
         catch ( SQLException e )
         {
@@ -1133,7 +1267,7 @@ public class DBResource
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
-            confirmedEvent = getConfirmedEventById( eventId, userId, conn );
+            confirmedEvent = loadConfirmedEventById( eventId, userId, conn );
         }
         catch ( SQLException e )
         {
@@ -1144,7 +1278,7 @@ public class DBResource
     }
 
 
-    public EventResponse getConfirmedEventById( long eventId, int userId, Connection conn )
+    public EventResponse loadConfirmedEventById( long confirmedEventId, int userId, Connection conn )
     {
         EventResponse eventResponse = null;
 
@@ -1158,7 +1292,7 @@ public class DBResource
 
             int count = 1;
 
-            ps.setLong( count++, eventId );
+            ps.setLong( count++, confirmedEventId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -1171,8 +1305,8 @@ public class DBResource
 
                     boolean isPublic = rs.getBoolean( "is_public" );
 
-                    Map<Integer, EventInvited> invitedMap = getEventInvited( eventId, conn );
-                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByEventId( eventId, conn );
+                    Map<Integer, EventInvited> invitedMap = getEventInvited( confirmedEventId, conn );
+                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( confirmedEventId, conn );
 
                     boolean isInvited = invitedMap.containsKey( userId );
                     boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
@@ -1263,9 +1397,9 @@ public class DBResource
             Map<Integer, UserProfile> userProfileMap = getUserProfilesWithDetails( new ArrayList<>(invitedMap.keySet()), conn );
             Map<Integer, List<Integer>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
             List<Integer> requestedFriendList = getVisibilityRequestedByUser( eventId, userId );
-            Map<Integer, List<Activity>> userActivityHistoryMap = getRecentUserActivityHistory( new ArrayList<>(invitedMap.keySet()), conn );
+            Map<Integer, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( new ArrayList<>(invitedMap.keySet()), conn );
             UserProfile currUser = getCompleteUserProfileById( userId, conn );
-            List<Activity> currUserRecentActivityHistory = getRecentUserActivityHistoryById( userId, conn );
+            List<CurrentActivity> currUserRecentCurrentActivityHistory = getRecentUserActivityHistoryById( userId, conn );
 
             for ( Integer invitedId : invitedMap.keySet() )
             {
@@ -1290,7 +1424,7 @@ public class DBResource
 
                     isFriend = friendIdList.contains( invitedId );
 
-                    List<Activity> recentActivityList = userActivityHistoryMap.get( invitedId );
+                    List<CurrentActivity> recentCurrentActivityList = userActivityHistoryMap.get( invitedId );
 
                     double distanceInMeters = LocationHelper.distance( currUser.getLatitude(), userProfile.getLatitude(), currUser.getLongitude(), userProfile.getLongitude(), 0.0, 0.0 );
 
@@ -1305,11 +1439,11 @@ public class DBResource
 
                     //Determine relationship
                     boolean isRecentlyMet = false;
-                    for ( Activity activity : recentActivityList )
+                    for ( CurrentActivity currentActivity : recentCurrentActivityList )
                     {
-                        for ( Activity currUserActivity : currUserRecentActivityHistory )
+                        for ( CurrentActivity currUserCurrentActivity : currUserRecentCurrentActivityHistory )
                         {
-                            if ( activity.getEventId() == currUserActivity.getEventId() )
+                            if ( currentActivity.getEventId() == currUserCurrentActivity.getEventId() )
                             {
                                 isRecentlyMet = true;
                                 break;
@@ -1341,6 +1475,93 @@ public class DBResource
         }
 
         return new HttpEntity<>( new BasicResponse( invitedUserList ) );
+    }
+
+    public HttpEntity<BasicResponse> getActiveFriendListByEventId( long eventId, int userId )
+    {
+        List<ActiveUser> activeUserList = new ArrayList<>();
+        try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
+        {
+            List<Integer> friendIdList = getFriendIdList( userId, conn );
+
+            Map<Integer, CurrentActivity> currentActivityMap = new HashMap<>();
+
+            StringBuilder sqlSb = new StringBuilder( "SELECT " +
+                    "ca.user_id, " +
+                    "ca.event_id, " +
+                    "ca.updated_time " +
+                    "FROM current_activity ca " +
+                    "WHERE " +
+                    "ca.event_id = ? " +
+                    "AND ca.user_id IN ( ");
+
+            String delim = " ";
+            for ( int friendId : friendIdList )
+            {
+                sqlSb.append( delim );
+                sqlSb.append( "?" );
+                delim = ", ";
+            }
+
+            sqlSb.append( " ) " );
+
+            try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+            {
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+
+                ps.setLong( count++, eventId );
+
+                for ( int friendId : friendIdList )
+                {
+                    ps.setInt( count++, friendId );
+                }
+
+                //execute query
+                try ( ResultSet rs = ps.executeQuery() )
+                {
+                    //position result to first
+
+                    while ( rs.next() )
+                    {
+                        CurrentActivity currentActivity = new CurrentActivity();
+                        currentActivity.load( rs );
+
+                        currentActivityMap.put( currentActivity.getUserId(), currentActivity );
+
+                    }
+
+                }
+                catch ( SQLException e )
+                {
+                    e.printStackTrace();
+                }
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+
+            Map<Integer, UserProfile> userProfileMap = getUserProfilesWithDetails( new ArrayList<>(currentActivityMap.keySet()), conn );
+
+            for ( CurrentActivity currentActivity : currentActivityMap.values() )
+            {
+                ActiveUser activeUser = new ActiveUser();
+                activeUser.setUser( userProfileMap.get( currentActivity.getUserId() ) );
+                activeUser.setCreatedTime( currentActivity.getUpdatedTime() );
+
+                activeUserList.add( activeUser );
+            }
+
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( activeUserList ) );
     }
 
     public Map<Integer, EventInvited> getEventInvited( long eventId, Connection conn )
@@ -1555,7 +1776,7 @@ public class DBResource
 
             // Load updated event
 
-            updatedEvent = getConfirmedEventById( eventId, userId, conn );
+            updatedEvent = loadConfirmedEventById( eventId, userId, conn );
 
             // update event tag
             updatePopularConfirmedEvent( updatedEvent.getConfirmedEvent(), conn );
@@ -1597,7 +1818,7 @@ public class DBResource
             }
 
             // Load updated event
-            updatedEvent = getConfirmedEventById( eventId, userId, conn );
+            updatedEvent = loadConfirmedEventById( eventId, userId, conn );
         }
         catch ( SQLException e )
         {
@@ -1659,7 +1880,7 @@ public class DBResource
             }
 
             // Load updated event
-            updatedEvent = getConfirmedEventById( eventId, userId, conn );
+            updatedEvent = loadConfirmedEventById( eventId, userId, conn );
         }
         catch ( SQLException e )
         {
@@ -1702,7 +1923,7 @@ public class DBResource
             //TODO add notification
 
             // Load updated event
-            updatedEvent = getConfirmedEventById( eventId, userId, conn );
+            updatedEvent = loadConfirmedEventById( eventId, userId, conn );
         }
         catch ( SQLException e )
         {
@@ -1756,7 +1977,7 @@ public class DBResource
         }
 
         // Load updated event
-        updatedEvent = getConfirmedEventById( eventId, requesterId, conn );
+        updatedEvent = loadConfirmedEventById( eventId, requesterId, conn );
 
         return updatedEvent;
     }
@@ -1769,7 +1990,7 @@ public class DBResource
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
             // Get Join Requests
-            eventJoinRequestMap = getEventJoinRequestsByEventId( eventId, conn );
+            eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( eventId, conn );
 
             Map<Integer, UserProfile> joinRequestedUserMap = getUserProfileByList( new ArrayList<>( eventJoinRequestMap.keySet() ), conn );
 
@@ -1791,7 +2012,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( joinRequestList ) );
     }
 
-    public Map<Integer, EventJoinRequest> getEventJoinRequestsByEventId( long eventId, Connection conn )
+    public Map<Integer, EventJoinRequest> getEventJoinRequestsByConfirmedEventId( long eventId, Connection conn )
     {
         Map<Integer, EventJoinRequest> eventJoinRequestMap = new HashMap<>();
 
@@ -1872,18 +2093,20 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public EventResponse addEventInterest( long eventId, int userId, EventInterest eventInterest, long updatedTime )
+    public HttpEntity<BasicResponse> addEventInterest( long eventId, int userId, EventInterest eventInterest, long updatedTime )
     {
+        EventResponse eventResponse;
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
-            return addEventInterest( eventId, userId, eventInterest, updatedTime, conn );
+            eventResponse = addEventInterest( eventId, userId, eventInterest, updatedTime, conn );
         }
         catch ( SQLException e )
         {
             e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return null;
+        return new HttpEntity<>( new BasicResponse( eventResponse ) );
 
     }
 
@@ -2045,7 +2268,7 @@ public class DBResource
         return updatedEvent;
     }
 
-    public List<FeedItem> updatePopularActiveEvent( Activity activity, Connection conn )
+    public List<FeedItem> updatePopularActiveEvent( CurrentActivity currentActivity, Connection conn )
     {
         List<FeedItem> updatedEvent = new ArrayList<>();
 
@@ -2058,12 +2281,12 @@ public class DBResource
 
             int count = 1;
 
-            ps.setLong( count++, activity.getEventId() );
-            ps.setInt( count++, activity.getUserId() );
-            ps.setTimestamp( count++, new Timestamp( activity.getUpdatedTime() ) );
+            ps.setLong( count++, currentActivity.getEventId() );
+            ps.setInt( count++, currentActivity.getUserId() );
+            ps.setTimestamp( count++, new Timestamp( currentActivity.getUpdatedTime() ) );
 
             //on duplicate key update
-            ps.setTimestamp( count++, new Timestamp( activity.getUpdatedTime() ) );
+            ps.setTimestamp( count++, new Timestamp( currentActivity.getUpdatedTime() ) );
 
             //execute query
             ps.executeUpdate();
@@ -3465,9 +3688,9 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( popularTagList ) );
     }
 
-    public Map<Long, List<Integer>> getFriendActivity( List<Integer> friendIdList, int userId, Connection conn )
+    public Map<Long, List<CurrentActivity>> loadPopularActivityList( PopularFeedRequest popularFeedRequest, Connection conn )
     {
-        Map<Long, List<Integer>> activeFriendMap = new HashMap<>();
+        Map<Long, List<CurrentActivity>> activeFriendMap = new HashMap<>();
 
         StringBuilder sqlSb = new StringBuilder( "SELECT " +
                 "ca.user_id, " +
@@ -3475,7 +3698,156 @@ public class DBResource
                 "ca.updated_time " +
                 "FROM current_activity ca " +
                 "WHERE " +
-                "ca.user_id IN ( " );
+                "ca.event_id IS NOT NULL " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    CurrentActivity currentActivity = new CurrentActivity();
+                    currentActivity.load( rs );
+
+                    List<CurrentActivity> currentActivityList = new ArrayList<>();
+                    currentActivityList.add( currentActivity );
+
+                    activeFriendMap.merge( currentActivity.getEventId(), currentActivityList, ( oldList, newList ) -> {
+                        oldList.addAll( newList );
+                        return oldList;
+                    } );
+
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return activeFriendMap;
+    }
+
+    public List<PopularNearbyFeedItem> loadPopularNearbyFeedItemList( List<Long> confirmedEventIdList, List<Integer> friendIdList, Map<Long, List<CurrentActivity>> activeEventMap, int userId, Connection conn )
+    {
+        List<PopularNearbyFeedItem> popularNearbyFeedItems = new ArrayList<>();
+
+        if( confirmedEventIdList.isEmpty() )
+        {
+            return popularNearbyFeedItems;
+        }
+
+        StringBuilder sqlSb = new StringBuilder("SELECT " + CONFIRMED_EVENT_SELECT +
+                " WHERE ce.id IN ( ");
+
+        String delim = "";
+
+        for ( Long confirmedEventId : confirmedEventIdList )
+        {
+            sqlSb.append( delim );
+            sqlSb.append( "?" );
+            delim = ", ";
+        }
+
+        sqlSb.append( " ) " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            for ( Long confirmedEventId : confirmedEventIdList )
+            {
+                ps.setLong( count++, confirmedEventId );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+                while ( rs.next() )
+                {
+                    ConfirmedEvent confirmedEvent = new ConfirmedEvent();
+                    confirmedEvent.load( rs );
+
+                    Map<Integer, EventInvited> invitedMap = getEventInvited( confirmedEvent.getId(), conn );
+                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( confirmedEvent.getId(), conn );
+                    Set<Integer> confirmedIdSet = invitedMap.values().stream().filter( EventInvited::isConfirmed ).map( EventInvited::getUserId ).collect( Collectors.toSet() );
+
+                    boolean isInvited = invitedMap.containsKey( userId );
+                    boolean isParticipating = confirmedIdSet.contains( userId );
+                    boolean isCreatorFriend = friendIdList.contains( confirmedEvent.getCreatorId() );
+                    boolean isFriendConfirmed = Collections.disjoint( confirmedIdSet, friendIdList );
+                    boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
+                    int participantCount = confirmedIdSet.size();
+                    boolean isHappeningFeedItem = isInvited || isFriendConfirmed;
+
+                    if ( confirmedEvent.isPublic() || isInvited )
+                    {
+                        UserProfile creatorUser = getUserProfileById( confirmedEvent.getCreatorId(), conn );
+                        confirmedEvent.setCreatorDisplayName( creatorUser.getDisplayName() );
+
+                    }
+                    confirmedEvent.setParticipantCount( participantCount );
+
+
+                    List<CurrentActivity> activeUserList = activeEventMap.get( confirmedEvent.getId() );
+                    List<CurrentActivity> friendActivityList = activeUserList.stream().filter( e -> friendIdList.contains( e.getUserId() ) ).collect( Collectors.toList());
+
+                    PopularNearbyFeedItem nearbyFeedItem = new PopularNearbyFeedItem();
+                    nearbyFeedItem.setRelevantEvent( isHappeningFeedItem );
+                    nearbyFeedItem.setConfirmedEvent( confirmedEvent );
+                    nearbyFeedItem.setActiveCount( activeUserList.size() );
+                    nearbyFeedItem.setActiveFriendCount( friendActivityList.size() );
+                    nearbyFeedItem.setInvited( isInvited );
+                    nearbyFeedItem.setParticipant( isParticipating );
+                    nearbyFeedItem.setCreatorFriend( isCreatorFriend );
+                    nearbyFeedItem.setJoinRequested( isJoinRequested );
+
+                    popularNearbyFeedItems.add( nearbyFeedItem );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return popularNearbyFeedItems;
+    }
+
+    public Map<Long, List<CurrentActivity>> loadCurrentActivityByFriendList( List<Integer> friendIdList, int userId, Connection conn )
+    {
+        Map<Long, List<CurrentActivity>> activeFriendMap = new HashMap<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT " +
+                "ca.user_id, " +
+                "ca.event_id, " +
+                "ca.updated_time " +
+                "FROM current_activity ca " +
+                "WHERE " +
+                "ca.event_id IS NOT NULL " +
+                "AND ca.user_id IN ( " );
 
         String delim = " ";
 
@@ -3486,7 +3858,7 @@ public class DBResource
             delim = ", ";
         }
 
-        sqlSb.append( " )" );
+        sqlSb.append( " ) " );
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
         {
@@ -3507,13 +3879,13 @@ public class DBResource
 
                 while ( rs.next() )
                 {
-                    Activity activity = new Activity();
-                    activity.load( rs );
+                    CurrentActivity currentActivity = new CurrentActivity();
+                    currentActivity.load( rs );
 
-                    List<Integer> activeUserIdList = new ArrayList<>();
-                    activeUserIdList.add( activity.getUserId() );
+                    List<CurrentActivity> currentActivityList = new ArrayList<>();
+                    currentActivityList.add( currentActivity );
 
-                    activeFriendMap.merge( activity.getEventId(), activeUserIdList, ( oldList, newList ) -> {
+                    activeFriendMap.merge( currentActivity.getEventId(), currentActivityList, ( oldList, newList ) -> {
                         oldList.addAll( newList );
                         return oldList;
                     } );
@@ -3540,11 +3912,8 @@ public class DBResource
 
         StringBuilder sqlSb = new StringBuilder( "SELECT " );
         sqlSb.append( EVENT_SELECT );
-        sqlSb.append( "WHERE e.is_confirmed = FALSE " );
-        sqlSb.append( "AND e.is_cancelled = FALSE " );
-        sqlSb.append( "AND ( " );
-        sqlSb.append(  "        ( ( e.visibility_preference = " + PrivacyPreference.VISIBILITY_PUBLIC + " OR e.visibility_preference = " + PrivacyPreference.VISIBILITY_FRIENDS_OF_FRIENDS + " ) " );
-        sqlSb.append(  "           AND e.id IN ( SELECT event_id FROM event_interested ei WHERE ei.user_id IN ( " );
+        sqlSb.append( "WHERE " );
+        sqlSb.append( "e.id IN ( SELECT event_id FROM event_interested ei WHERE ei.user_id IN ( " );
 
         String delim = " ";
         for ( int friendId : friendIdList )
@@ -3555,20 +3924,6 @@ public class DBResource
         }
 
         sqlSb.append( "         ) )" ); //Close IN and IN
-        sqlSb.append( "     ) " ); //Close OR
-        sqlSb.append( "     OR ( e.visibility_preference = " + PrivacyPreference.VISIBILITY_FRIENDS + " AND e.creator_id IN ( " );
-
-        delim = " ";
-        for ( int friendId : friendIdList )
-        {
-            sqlSb.append( delim );
-            sqlSb.append( "?" );
-            delim = ", ";
-        }
-
-        sqlSb.append( "             ) " ); // Close IN
-        sqlSb.append( "      ) " ); //Close OR
-        sqlSb.append( " )" ); //Close AND
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
         {
@@ -3577,13 +3932,6 @@ public class DBResource
 
             int count = 1;
 
-            // For VISIBILITY_FRIENDS_OF_FRIENDS
-            for ( int friendId : friendIdList )
-            {
-                ps.setInt( count++, friendId );
-            }
-
-            // For VISIBILITY_FRIENDS
             for ( int friendId : friendIdList )
             {
                 ps.setInt( count++, friendId );
@@ -3617,25 +3965,10 @@ public class DBResource
                     boolean isInterested = eventInterestMap.containsKey( userId );
                     boolean isCreatorFriend = friendIdList.stream().anyMatch( e -> e == event.getCreatorId() );
                     boolean isFriendInterested = friendIdList.stream().anyMatch( eventInterestMap::containsKey );
-
-                    boolean isShowInterestEnabled = false;
-
-                    if ( event.getInterestPreference() == PrivacyPreference.INTEREST_PUBLIC )
-                    {
-                        isShowInterestEnabled = true;
-                    }
-                    else if ( event.getInterestPreference() == PrivacyPreference.INTEREST_FRIENDS_OF_FRIENDS )
-                    {
-                        isShowInterestEnabled = isFriendInterested;
-                    }
-                    else if ( event.getInterestPreference() == PrivacyPreference.INTEREST_FRIENDS )
-                    {
-                        isShowInterestEnabled = isCreatorFriend;
-                    }
-
+                    int interestedFriendCount = ( int ) eventInterestMap.keySet().stream().filter( friendIdList::contains ).count();
 
                     feedItem.setEvent( event );
-                    feedItem.setShowInterestEnabled( isShowInterestEnabled );
+                    feedItem.setInterestedFriendCount( interestedFriendCount );
                     feedItem.setInterested( isInterested );
                     feedItem.setCreatorFriend( isCreatorFriend );
                     feedItem.setFriendInterested( isFriendInterested );
@@ -3664,7 +3997,8 @@ public class DBResource
         StringBuilder sqlSb = new StringBuilder( "SELECT " +
                CONFIRMED_EVENT_SELECT +
                 "WHERE " +
-                "ce.is_happening = FALSE " +
+                "ce.is_cancelled = FALSE " +
+                "AND ce.is_happening = FALSE " +
                 "AND ( ce.creator_id IN ( " );
 
         String delim = " ";
@@ -3677,7 +4011,7 @@ public class DBResource
         }
 
         sqlSb.append( " )" );
-        sqlSb.append( " OR ce.id IN ( SELECT event_id FROM event_participant ep WHERE ep.user_id IN ( " );
+        sqlSb.append( " OR ce.id IN ( SELECT event_id FROM event_participant ep WHERE ep.is_confirmed = TRUE AND ep.user_id IN ( " );
 
         delim = " ";
 
@@ -3725,6 +4059,7 @@ public class DBResource
                     boolean isPublic = rs.getBoolean( "is_public" );
 
                     Map<Integer, EventInvited> invitedMap = getEventInvited( eventId, conn );
+                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( eventId, conn );
 
                     boolean isInvited = invitedMap.containsKey( userId );
                     boolean isParticipating = false;
@@ -3733,6 +4068,9 @@ public class DBResource
                     {
                         isParticipating = invitedMap.get( userId ).isConfirmed();
                     }
+                    boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
+
+                    int participantCount = ( int ) invitedMap.values().stream().filter( EventInvited::isConfirmed ).count();
 
                     ConfirmedEvent event = new ConfirmedEvent();
 
@@ -3741,18 +4079,18 @@ public class DBResource
                         event.load( rs );
                         UserProfile creatorUser = getCompleteUserProfileById( event.getCreatorId(), conn );
                         event.setCreatorDisplayName( creatorUser.getDisplayName() );
-                        event.setParticipantCount( invitedMap.size() );
+                        event.setParticipantCount( participantCount );
                     }
                     else
                     {
                         event.loadPrivateEvent( rs );
-                        event.setParticipantCount( invitedMap.size() );
                     }
 
                     UpcomingFeedItem feedItem = new UpcomingFeedItem();
                     feedItem.setConfirmedEvent( event );
                     feedItem.setInvited( isInvited );
                     feedItem.setParticipant( isParticipating );
+                    feedItem.setJoinRequested( isJoinRequested );
 
                     feedItemList.add( feedItem );
                 }
@@ -3950,7 +4288,7 @@ public class DBResource
 
         // Get interested friend details
         Map<Integer, UserProfile> interestedUserProfileMap = getUserProfilesWithDetails( interestedFriendIdList, conn );
-        Map<Integer, List<Activity>> userActivityHistoryMap = getRecentUserActivityHistory( interestedFriendIdList, conn );
+        Map<Integer, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( interestedFriendIdList, conn );
 
         // Get friend visibility matrix for current user
         Map<Integer, List<Integer>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
@@ -3958,13 +4296,13 @@ public class DBResource
 
         //Load current user details
         UserProfile currUser = getCompleteUserProfileById( userId, conn );
-        List<Activity> currUserRecentActivityHistory = userActivityHistoryMap.get( userId );
+        List<CurrentActivity> currUserRecentCurrentActivityHistory = userActivityHistoryMap.get( userId );
 
         for ( Integer interestedUserId : interestedUserProfileMap.keySet() )
         {
             UserProfile friendProfile = interestedUserProfileMap.get( interestedUserId );
             EventInterest eventInterest = eventInterestMap.get( interestedUserId );
-            List<Activity> recentActivityList = userActivityHistoryMap.get( interestedUserId );
+            List<CurrentActivity> recentCurrentActivityList = userActivityHistoryMap.get( interestedUserId );
 
             String distance = null;
             String relationship = null;
@@ -3999,11 +4337,11 @@ public class DBResource
 
                 //Determine relationship
                 boolean isRecentlyMet = false;
-                for ( Activity activity : recentActivityList )
+                for ( CurrentActivity currentActivity : recentCurrentActivityList )
                 {
-                    for ( Activity currUserActivity : currUserRecentActivityHistory )
+                    for ( CurrentActivity currUserCurrentActivity : currUserRecentCurrentActivityHistory )
                     {
-                        if ( activity.getEventId() == currUserActivity.getEventId() )
+                        if ( currentActivity.getEventId() == currUserCurrentActivity.getEventId() )
                         {
                             isRecentlyMet = true;
                             break;

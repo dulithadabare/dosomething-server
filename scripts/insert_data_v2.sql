@@ -63,6 +63,19 @@ INSERT INTO friend
     ('7', '9'),
     ('9', '7');
 
+INSERT INTO current_activity
+    (user_id, event_id)
+    VALUES
+    (1, null),
+    (2, null),
+    (3, null),
+    (4, null),
+    (5, null),
+    (6, null),
+    (7, null),
+    (8, null),
+    (9, null);
+
 --INSERT INTO inbox
 --    (user_id, content, sender_id)
 --    VALUES

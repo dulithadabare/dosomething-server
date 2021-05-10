@@ -1,10 +1,11 @@
 package com.dulithadabare.dosomething.model;
 
-public class HappeningFeedItem
+public class PopularNearbyFeedItem
 {
     private ConfirmedEvent confirmedEvent;
     private int activeFriendCount;
     private int activeCount;
+    private boolean isRelevantEvent;
     private boolean isInvited;
     private boolean isParticipant;
     private boolean isCreatorFriend;
@@ -39,6 +40,16 @@ public class HappeningFeedItem
     public void setActiveFriendCount( int activeFriendCount )
     {
         this.activeFriendCount = activeFriendCount;
+    }
+
+    public boolean isRelevantEvent()
+    {
+        return isRelevantEvent;
+    }
+
+    public void setRelevantEvent( boolean relevantEvent )
+    {
+        isRelevantEvent = relevantEvent;
     }
 
     public boolean isInvited()

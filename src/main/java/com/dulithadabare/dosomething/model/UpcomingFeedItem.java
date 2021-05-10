@@ -12,6 +12,7 @@ public class UpcomingFeedItem
     private boolean isFriendInterested;
     private boolean isInvited;
     private boolean isParticipant;
+    private boolean isJoinRequested;
 
     public Event getEvent()
     {
@@ -111,6 +112,16 @@ public class UpcomingFeedItem
     public void setParticipant( boolean participant )
     {
         isParticipant = participant;
+    }
+
+    public boolean isJoinRequested()
+    {
+        return isJoinRequested;
+    }
+
+    public void setJoinRequested( boolean joinRequested )
+    {
+        isJoinRequested = joinRequested;
     }
 }
 

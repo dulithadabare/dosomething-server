@@ -12,10 +12,10 @@ public class ConfirmedEvent extends Event
     private long eventId;
     private String date;
     private String time;
-    public boolean isPublic;
-    public boolean isHappening;
-    public List<InvitedUser> participantList;
-    public List<InvitedUser> removedInvitedUserList;
+    private boolean isPublic;
+    private boolean isHappening;
+    private List<InvitedUser> participantList;
+    private List<InvitedUser> removedInvitedUserList;
     private int participantCount;
 
     public ConfirmedEvent()
@@ -42,12 +42,15 @@ public class ConfirmedEvent extends Event
         this.visibilityPreference = rs.getInt( "visibility_preference" );
         this.isPublic = rs.getBoolean( "is_public" );
         this.isHappening = rs.getBoolean( "is_happening" );
+        this.isCancelled = rs.getBoolean( "is_cancelled" );
     }
 
     public void loadPrivateEvent( ResultSet rs ) throws SQLException
     {
         this.id = rs.getLong( "id" );
         this.tag = rs.getString( "activity" );
+        this.description = rs.getString( "description" );
+        this.createdTime = rs.getTimestamp( "timestamp" ).getTime();
         this.isHappening = rs.getBoolean( "is_happening" );
         this.creatorId = -1;
     }

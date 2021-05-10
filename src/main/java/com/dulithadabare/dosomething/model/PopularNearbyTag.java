@@ -2,12 +2,12 @@ package com.dulithadabare.dosomething.model;
 
 import java.util.List;
 
-public class HappeningTagGroup
+public class PopularNearbyTag
 {
     private String tag;
     private int activeCount;;
     private int activeFriendCount;
-    private List<HappeningFeedItem> happeningFeedItemList;
+    private List<PopularNearbyFeedItem> popularNearbyFeedItemList;
 
     public String getTag()
     {
@@ -39,13 +39,14 @@ public class HappeningTagGroup
         this.activeFriendCount = activeFriendCount;
     }
 
-    public List<HappeningFeedItem> getHappeningFeedItemList()
+    public List<PopularNearbyFeedItem> getPopularNearbyFeedItemList()
     {
-        return happeningFeedItemList;
+        return popularNearbyFeedItemList;
     }
 
-    public void setHappeningFeedItemList( List<HappeningFeedItem> happeningFeedItemList )
+    public void setPopularNearbyFeedItemList( List<PopularNearbyFeedItem> popularNearbyFeedItemList )
     {
-        this.happeningFeedItemList = happeningFeedItemList;
+        this.popularNearbyFeedItemList = popularNearbyFeedItemList;
     }
+
 }

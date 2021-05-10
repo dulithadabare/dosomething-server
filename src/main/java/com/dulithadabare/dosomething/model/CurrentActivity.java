@@ -3,7 +3,7 @@ package com.dulithadabare.dosomething.model;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-public class Activity
+public class CurrentActivity
 {
     private int userId;
     private long eventId;

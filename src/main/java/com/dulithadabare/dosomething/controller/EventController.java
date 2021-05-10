@@ -157,7 +157,7 @@ public class EventController
         eventInterest.setEventId( eventId );
         eventInterest.setUserId( userProfile.getUserId() );
 
-        return new HttpEntity<>( new BasicResponse( dbResource.addEventInterest( eventId, userProfile.getUserId(), eventInterest, timestamp ) ) );
+        return dbResource.addEventInterest( eventId, userProfile.getUserId(), eventInterest, timestamp );
     }
 
     @CrossOrigin
@@ -353,6 +353,21 @@ public class EventController
         }
 
         return new HttpEntity<>( new BasicResponse( dbResource.removeEventVisibility( eventId, userProfile.getUserId() ) ) );
+    }
+
+    @CrossOrigin
+    @GetMapping( "/{confirmedEventId}/active" )
+    public HttpEntity<BasicResponse> getActiveFriendListByEventId( @PathVariable long confirmedEventId, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.getActiveFriendListByEventId( confirmedEventId, userProfile.getUserId() );
     }
 
 }

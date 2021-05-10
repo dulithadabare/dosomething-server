@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS confirmed_event (
     is_cancelled BOOL DEFAULT FALSE,
     is_public BOOL DEFAULT TRUE,
     is_happening BOOL DEFAULT FALSE,
+    is_completed BOOL DEFAULT FALSE,
     visibility_preference INT NOT NULL,
     timestamp TIMESTAMP
 );
@@ -139,8 +140,8 @@ CREATE TABLE IF NOT EXISTS user_activity_history (
 );
 
 CREATE TABLE IF NOT EXISTS current_activity (
-    event_id BIGINT NOT NULL,
     user_id INT NOT NULL,
+    event_id BIGINT,
     updated_time TIMESTAMP,
     PRIMARY KEY (user_id)
 );
