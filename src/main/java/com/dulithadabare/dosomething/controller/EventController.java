@@ -31,22 +31,6 @@ public class EventController
     }
 
     @CrossOrigin
-    @PostMapping( "{eventId}/cancel" )
-    public HttpEntity<BasicResponse> cancelEvent( @RequestBody Event event, @AuthenticationPrincipal Jwt jwt  )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        if ( userProfile.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return new HttpEntity<>( new BasicResponse( dbResource.cancelEvent( event, userProfile.getUserId() ) ) );
-    }
-
-
-    @CrossOrigin
     @PostMapping( "/confirmed-events" )
     public HttpEntity<BasicResponse> createConfirmedEvent( @RequestBody ConfirmedEvent event, @AuthenticationPrincipal Jwt jwt )
     {

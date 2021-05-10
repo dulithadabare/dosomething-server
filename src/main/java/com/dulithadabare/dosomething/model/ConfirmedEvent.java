@@ -9,11 +9,13 @@ import java.util.Map;
 
 public class ConfirmedEvent extends Event
 {
+    private String creatorDisplayName;
     private long eventId;
     private String date;
     private String time;
     private boolean isPublic;
     private boolean isHappening;
+    private boolean isCancelled;
     private List<InvitedUser> participantList;
     private List<InvitedUser> removedInvitedUserList;
     private int participantCount;
@@ -29,9 +31,9 @@ public class ConfirmedEvent extends Event
         this.id = rs.getLong( "id" );
         this.eventId = rs.getLong( "event_id" );
         this.creatorId = rs.getInt( "creator_id" );
-        this.tag = rs.getString( "activity" );
         this.description = rs.getString( "description" );
-        this.createdTime = rs.getTimestamp( "timestamp" ).getTime();
+        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
+        this.createdTime = rs.getTimestamp( "created_time" ).getTime();
 
         Date date = rs.getDate( "date" );
         Time time = rs.getTime( "time" );
@@ -48,11 +50,21 @@ public class ConfirmedEvent extends Event
     public void loadPrivateEvent( ResultSet rs ) throws SQLException
     {
         this.id = rs.getLong( "id" );
-        this.tag = rs.getString( "activity" );
         this.description = rs.getString( "description" );
-        this.createdTime = rs.getTimestamp( "timestamp" ).getTime();
+        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
+        this.createdTime = rs.getTimestamp( "created_time" ).getTime();
         this.isHappening = rs.getBoolean( "is_happening" );
         this.creatorId = -1;
+    }
+
+    public String getCreatorDisplayName()
+    {
+        return creatorDisplayName;
+    }
+
+    public void setCreatorDisplayName( String creatorDisplayName )
+    {
+        this.creatorDisplayName = creatorDisplayName;
     }
 
     public long getEventId()
@@ -133,5 +145,15 @@ public class ConfirmedEvent extends Event
     public void setRemovedInvitedUserList( List<InvitedUser> removedInvitedUserList )
     {
         this.removedInvitedUserList = removedInvitedUserList;
+    }
+
+    public boolean isCancelled()
+    {
+        return isCancelled;
+    }
+
+    public void setCancelled( boolean cancelled )
+    {
+        isCancelled = cancelled;
     }
 }

@@ -35,17 +35,19 @@ CREATE SEQUENCE event_sequence START WITH 1 INCREMENT BY 1;
 CREATE TABLE IF NOT EXISTS event (
     id BIGINT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR event_sequence),
     creator_id INT NOT NULL,
-    activity VARCHAR(100) NOT NULL,
-    description VARCHAR(200),
-    date DATE,
-    time TIME,
+    description VARCHAR(200) NOT NULL,
     longitude DOUBLE(15, 13),
     latitude DOUBLE(15, 13),
-    is_cancelled BOOL DEFAULT FALSE,
     is_confirmed BOOL DEFAULT FALSE,
     visibility_preference INT NOT NULL,
-    interest_preference INT NOT NULL,
-    timestamp TIMESTAMP
+    updated_time TIMESTAMP,
+    created_time TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS event_tag (
+    event_id BIGINT NOT NULL,
+    tag VARCHAR(200),
+    PRIMARY KEY (event_id, tag)
 );
 
 CREATE TABLE IF NOT EXISTS event_interested (
@@ -89,8 +91,7 @@ CREATE TABLE IF NOT EXISTS confirmed_event (
     id BIGINT NOT NULL PRIMARY KEY DEFAULT (NEXT VALUE FOR confirmed_event_sequence),
     event_id BIGINT NOT NULL,
     creator_id INT NOT NULL,
-    activity VARCHAR(100) NOT NULL,
-    description VARCHAR(500),
+    description VARCHAR(200) NOT NULL,
     date DATE,
     time TIME,
     longitude DOUBLE(15, 13),
@@ -100,7 +101,8 @@ CREATE TABLE IF NOT EXISTS confirmed_event (
     is_happening BOOL DEFAULT FALSE,
     is_completed BOOL DEFAULT FALSE,
     visibility_preference INT NOT NULL,
-    timestamp TIMESTAMP
+    updated_time TIMESTAMP,
+    created_time TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS event_join_request (
@@ -197,6 +199,8 @@ ALTER TABLE friend ADD CONSTRAINT friend_user_id_fk FOREIGN KEY (user_id) REFERE
 ALTER TABLE friend ADD CONSTRAINT friend_friend_id_fk FOREIGN KEY (friend_id) REFERENCES user(id);
 
 ALTER TABLE event ADD CONSTRAINT event_user_fk FOREIGN KEY (creator_id) REFERENCES user(id);
+
+ALTER TABLE event_tag ADD CONSTRAINT event_tag_event_fk FOREIGN KEY (event_id) REFERENCES event(id);
 
 ALTER TABLE popular_event ADD CONSTRAINT popular_event_event_fk FOREIGN KEY (event_id) REFERENCES event(id);
 

@@ -2,10 +2,9 @@ package com.dulithadabare.dosomething.model;
 
 import java.util.List;
 
-public class HappeningTagGroup
+public class HappeningTagGroup extends ActiveFeedItem
 {
     private String tag;
-    private int activeCount;;
     private int activeFriendCount;
     private List<HappeningFeedItem> happeningFeedItemList;
 
@@ -17,16 +16,6 @@ public class HappeningTagGroup
     public void setTag( String tag )
     {
         this.tag = tag;
-    }
-
-    public int getActiveCount()
-    {
-        return activeCount;
-    }
-
-    public void setActiveCount( int activeCount )
-    {
-        this.activeCount = activeCount;
     }
 
     public int getActiveFriendCount()

@@ -1,10 +1,9 @@
 package com.dulithadabare.dosomething.model;
 
-public class HappeningFeedItem
+public class HappeningFeedItem extends ActiveFeedItem
 {
     private ConfirmedEvent confirmedEvent;
     private int activeFriendCount;
-    private int activeCount;
     private boolean isInvited;
     private boolean isParticipant;
     private boolean isCreatorFriend;
@@ -19,16 +18,6 @@ public class HappeningFeedItem
     public void setConfirmedEvent( ConfirmedEvent confirmedEvent )
     {
         this.confirmedEvent = confirmedEvent;
-    }
-
-    public int getActiveCount()
-    {
-        return activeCount;
-    }
-
-    public void setActiveCount( int activeCount )
-    {
-        this.activeCount = activeCount;
     }
 
     public int getActiveFriendCount()

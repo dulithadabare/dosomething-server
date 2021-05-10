@@ -21,18 +21,15 @@ public class DBResource
 
     private final String EVENT_SELECT = " e.id," +
             " e.creator_id," +
-            " e.activity, " +
             " e.description, " +
             " e.visibility_preference, " +
-            " e.interest_preference, " +
-            " e.is_cancelled, " +
             " e.is_confirmed, " +
-            " e.timestamp " +
+            " e.updated_time, " +
+            " e.created_time " +
             " FROM event e ";
     private final String CONFIRMED_EVENT_SELECT = " ce.id," +
             " ce.event_id," +
             " ce.creator_id," +
-            " ce.activity, " +
             " ce.description, " +
             " ce.date, " +
             " ce.time, " +
@@ -40,7 +37,8 @@ public class DBResource
             " ce.is_public, " +
             " ce.is_happening, " +
             " ce.is_cancelled, " +
-            " ce.timestamp " +
+            " ce.updated_time, " +
+            " ce.created_time " +
             "FROM confirmed_event ce ";
 
     class ActiveEvent
@@ -302,7 +300,7 @@ public class DBResource
 
     public HttpEntity<BasicResponse> getHappeningFeed( int userId )
     {
-        List<HappeningTagGroup> tagGroupList = new ArrayList<>();
+        List<ActiveFeedItem> activeFeedItemList = new ArrayList<>();
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
@@ -351,47 +349,14 @@ public class DBResource
 
                 HappeningFeedItem happeningFeedItem = new HappeningFeedItem();
                 happeningFeedItem.setConfirmedEvent( event );
-                happeningFeedItem.setActiveCount( activeUserList.size() );
-                happeningFeedItem.setActiveFriendCount( friendActivityList.size() );
+                happeningFeedItem.setActiveCount( friendActivityList.size() );
                 happeningFeedItem.setInvited( eventResponse.isInvited() );
                 happeningFeedItem.setParticipant( eventResponse.isParticipant() );
                 happeningFeedItem.setCreatorFriend( friendIdList.contains( event.getCreatorId() ) );
                 happeningFeedItem.setJoinRequested( eventJoinRequestMap.containsKey( userId ) );
                 happeningFeedItem.setFirstActiveTimestamp( firstActiveTimestamp );
 
-                List<HappeningFeedItem> happeningFeedItemList = new ArrayList<>();
-                happeningFeedItemList.add( happeningFeedItem );
-
-                tagMap.merge( event.getTag(), happeningFeedItemList, ( old, curr) -> {
-                    old.addAll( curr );
-                    return  old;
-                } );
-            }
-
-            // Create Feed Item list
-            for ( String tag : tagMap.keySet() )
-            {
-                List<HappeningFeedItem> happeningFeedItemList = tagMap.get( tag );
-                // Sort Happening Feed Items by firstActiveTimestamp DESC. Latest item will be the first in the list.
-                happeningFeedItemList.sort( (o1, o2) -> Long.compare( o2.getFirstActiveTimestamp(), o1.getFirstActiveTimestamp() ) );
-
-                HappeningTagGroup tagGroup = new HappeningTagGroup();
-                tagGroup.setTag( tag );
-                tagGroup.setHappeningFeedItemList( happeningFeedItemList );
-
-                int activeCount = 0;
-                int activeFriendCount = 0;
-
-                for ( HappeningFeedItem happeningFeedItem : happeningFeedItemList )
-                {
-                    activeCount += happeningFeedItem.getActiveCount();
-                    activeFriendCount += happeningFeedItem.getActiveFriendCount();
-                }
-
-                tagGroup.setActiveCount( activeCount );
-                tagGroup.setActiveFriendCount( activeFriendCount );
-
-                tagGroupList.add( tagGroup );
+                activeFeedItemList.add( happeningFeedItem );
             }
         }
         catch ( SQLException e )
@@ -399,11 +364,10 @@ public class DBResource
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        // Sort tag group by active friend count DESC.
-        // The tag Group with the most active friends will be the first in the list.
-        tagGroupList.sort( (o1, o2) -> Long.compare( o2.getActiveFriendCount(), o1.getActiveFriendCount() ) );
+        // Sort active feed items by active friend count DESC.
+        activeFeedItemList.sort( (o1, o2) -> Long.compare( o2.getActiveCount(), o1.getActiveCount() ) );
 
-        return new HttpEntity<>( new BasicResponse( tagGroupList ) );
+        return new HttpEntity<>( new BasicResponse( activeFeedItemList ) );
     }
 
     public HttpEntity<BasicResponse> getUpcomingFeed( int userId )
@@ -839,27 +803,21 @@ public class DBResource
 
         try ( Connection conn = DriverManager.getConnection( DB_URL, DB_USER, DB_PASS ) )
         {
-
             // Create event
-
             try ( PreparedStatement ps = conn.prepareStatement( "INSERT IGNORE INTO event (" +
                     " creator_id ," +
-                    " activity," +
                     " description," +
                     " visibility_preference," +
-                    " interest_preference," +
-                    " timestamp" +
-                    " ) VALUES ( ?, ?, ?, ?, ?, ? )" ) )
+                    " created_time" +
+                    " ) VALUES ( ?, ?, ?, ? )" ) )
             {
                 ps.setFetchSize( 1000 );
 
                 int count = 1;
 
                 ps.setInt( count++, userId );
-                ps.setString( count++, event.getTag() );
                 ps.setString( count++, event.getDescription() );
                 ps.setInt( count++, event.getVisibilityPreference() );
-                ps.setInt( count++, event.getInterestPreference() );
                 ps.setTimestamp( count++, new Timestamp( event.getCreatedTime() ) );
 
                 //execute query
@@ -873,6 +831,45 @@ public class DBResource
 
             // Get created event id
             long eventId = getLastCreatedValueForEvent( conn );
+
+            if( !event.getTagList().isEmpty() )
+            {
+                StringBuilder tagSqlSb = new StringBuilder(
+                        "INSERT IGNORE INTO event_tag (" +
+                                " event_id ," +
+                                " tag " +
+                                " ) VALUES "
+                );
+
+                String delim = "";
+
+                for ( String tag : event.getTagList() )
+                {
+                    tagSqlSb.append( delim );
+                    tagSqlSb.append( "( ?, ?)" );
+                    delim = ", ";
+                }
+
+                try ( PreparedStatement ps = conn.prepareStatement( tagSqlSb.toString() ) )
+                {
+                    ps.setFetchSize( 1000 );
+
+                    int count = 1;
+
+                    for ( String tag : event.getTagList() )
+                    {
+                        ps.setLong( count++, eventId );
+                        ps.setString( count++, tag );
+                    }
+                    //execute query
+                    ps.executeUpdate();
+
+                }
+                catch ( SQLException e )
+                {
+                    e.printStackTrace();
+                }
+            }
 
             //Add event interest for creator
             EventInterest eventInterest = new EventInterest( eventId, userId, "Creator" );
@@ -889,7 +886,48 @@ public class DBResource
         return createdEvent;
     }
 
-    public EventResponse cancelEvent( Event event, int userId )
+    public List<String> getTagListByEventId( long eventId, Connection conn )
+    {
+        List<String> tagList = new ArrayList<>();
+
+        String friendSql = "SELECT et.tag FROM event_tag et WHERE et.event_id = ?";
+
+        try ( PreparedStatement ps = conn.prepareStatement( friendSql ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            ps.setLong( 1, eventId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int count = 1;
+
+                    String tag = rs.getString( count++ );
+
+                    tagList.add( tag );
+                }
+
+            }
+            catch ( SQLException e )
+            {
+                e.printStackTrace();
+            }
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+
+        return tagList;
+    }
+
+    public EventResponse updateEvent( Event event, int userId )
     {
         EventResponse updatedEvent = null;
 
@@ -899,8 +937,6 @@ public class DBResource
             try ( PreparedStatement ps = conn.prepareStatement( "UPDATE event SET " +
                     " description = ?," +
                     " visibility_preference = ?," +
-                    " interest_preference = ?," +
-                    " is_cancelled = ?" +
                     " WHERE id = ? " ) )
             {
                 ps.setFetchSize( 1000 );
@@ -909,8 +945,6 @@ public class DBResource
 
                 ps.setString( count++, event.getDescription() );
                 ps.setInt( count++, event.getVisibilityPreference() );
-                ps.setInt( count++, event.getInterestPreference() );
-                ps.setBoolean( count++, event.isCancelled() );
                 ps.setLong( count++, event.getId() );
 
                 //execute query
@@ -943,14 +977,13 @@ public class DBResource
             try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO confirmed_event (" +
                     " event_id," +
                     " creator_id," +
-                    " activity," +
                     " description," +
                     " date," +
                     " time," +
                     " is_public," +
                     " visibility_preference," +
-                    " timestamp" +
-                    " ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ? )" ) )
+                    " created_time" +
+                    " ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ? )" ) )
             {
                 Date date = confirmedEvent.getDate() != null && !confirmedEvent.getDate().isEmpty() ? Date.valueOf( confirmedEvent.getDate() ) : null;
 
@@ -962,7 +995,6 @@ public class DBResource
 
                 ps.setLong( count++, confirmedEvent.getEventId() );
                 ps.setInt( count++, userId );
-                ps.setString( count++, confirmedEvent.getTag() );
                 ps.setString( count++, confirmedEvent.getDescription() );
                 ps.setDate( count++, date );
                 ps.setTime( count++, time );
@@ -1339,6 +1371,9 @@ public class DBResource
                     {
                         event.loadPrivateEvent( rs );
                     }
+
+                    List<String> tagList = getTagListByEventId( event.getEventId(), conn );
+                    event.setTagList( tagList );
 
                     eventResponse.setConfirmedEvent( event );
                     eventResponse.setInvited( isInvited );
@@ -3092,6 +3127,7 @@ public class DBResource
                     eventResponse = new EventResponse();
 
                     Map<Integer, EventInterest> eventInterestMap = getEventInterested( eventId, conn );
+                    List<String> tagList = getTagListByEventId( eventId, conn );
 
                     int interestedFriendCount = 0;
 
@@ -3108,6 +3144,7 @@ public class DBResource
                     Event event = new Event();
                     event.load( rs );
                     event.setInterestedCount( eventInterestMap.size() );
+                    event.setTagList( tagList );
 
                     eventResponse.setEvent( event );
                     eventResponse.setInterestedFriendCount( interestedFriendCount );
@@ -3170,7 +3207,6 @@ public class DBResource
 
                         FeedItem feedItem = new FeedItem();
                         feedItem.setEvent( event );
-                        feedItem.getEvent().setCreatorDisplayName( "You" );
                         feedItems.add( feedItem );
                     }
 
@@ -3370,7 +3406,6 @@ public class DBResource
                     event.load( rs );
                     event.setInterestedCount( interestedUserIdList.size() );
 
-                    event.setCreatorDisplayName( null );
                     feedItem.setEvent( event );
 
                     boolean isCreatorFriend = friendIdList.contains( event.getCreatorId() );
@@ -3386,22 +3421,6 @@ public class DBResource
                         }
                     }
 
-                    boolean isShowInterestEnabled = false;
-
-                    if ( event.getInterestPreference() == PrivacyPreference.INTEREST_PUBLIC )
-                    {
-                        isShowInterestEnabled = true;
-                    }
-                    else if ( event.getInterestPreference() == PrivacyPreference.INTEREST_FRIENDS_OF_FRIENDS )
-                    {
-                        isShowInterestEnabled = isFriendInterested;
-                    }
-                    else if ( event.getInterestPreference() == PrivacyPreference.INTEREST_FRIENDS )
-                    {
-                        isShowInterestEnabled = isCreatorFriend;
-                    }
-
-                    feedItem.setShowInterestEnabled( isShowInterestEnabled );
                     feedItem.setInterested( isInterested );
                     feedItem.setCreatorFriend( isCreatorFriend );
                     feedItem.setFriendInterested( isFriendInterested );
@@ -4023,7 +4042,6 @@ public class DBResource
         }
 
         sqlSb.append( " ) ) )" );
-        sqlSb.append( " ORDER BY ce.timestamp DESC" );
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
         {
 

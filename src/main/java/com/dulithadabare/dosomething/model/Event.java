@@ -2,32 +2,30 @@ package com.dulithadabare.dosomething.model;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Event
 {
     protected long id;
     protected int creatorId;
-    protected String creatorDisplayName;
-    protected String tag;
     protected String description;
-    protected boolean isCancelled;
     protected boolean isConfirmed;
     protected int interestedCount;
     protected int visibilityPreference;
-    protected int interestPreference;
     protected long createdTime;
+    protected long updatedTime;
+    protected List<String> tagList = new ArrayList<>();
 
     public void load( ResultSet rs ) throws SQLException
     {
         this.id = rs.getLong( "id" );
         this.creatorId = rs.getInt( "creator_id" );
-        this.tag = rs.getString( "activity" );
         this.description = rs.getString( "description" );
-        this.isCancelled = rs.getBoolean( "is_cancelled" );
         this.isConfirmed = rs.getBoolean( "is_confirmed" );
         this.visibilityPreference = rs.getInt( "visibility_preference" );
-        this.interestPreference = rs.getInt( "interest_preference" );
-        this.createdTime = rs.getTimestamp( "timestamp" ).getTime();
+        this.createdTime = rs.getTimestamp( "created_time" ).getTime();
+        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
     }
 
     public long getId()
@@ -48,26 +46,6 @@ public class Event
         this.creatorId = creatorId;
     }
 
-    public String getCreatorDisplayName()
-    {
-        return creatorDisplayName;
-    }
-
-    public void setCreatorDisplayName( String creatorDisplayName )
-    {
-        this.creatorDisplayName = creatorDisplayName;
-    }
-
-    public String getTag()
-    {
-        return tag;
-    }
-
-    public void setTag( String tag )
-    {
-        this.tag = tag;
-    }
-
     public String getDescription()
     {
         return description;
@@ -76,16 +54,6 @@ public class Event
     public void setDescription( String description )
     {
         this.description = description;
-    }
-
-    public boolean isCancelled()
-    {
-        return isCancelled;
-    }
-
-    public void setCancelled( boolean cancelled )
-    {
-        isCancelled = cancelled;
     }
 
     public boolean isConfirmed()
@@ -118,14 +86,14 @@ public class Event
         this.visibilityPreference = visibilityPreference;
     }
 
-    public int getInterestPreference()
+    public List<String> getTagList()
     {
-        return interestPreference;
+        return tagList;
     }
 
-    public void setInterestPreference( int interestPreference )
+    public void setTagList( List<String> tagList )
     {
-        this.interestPreference = interestPreference;
+        this.tagList = tagList;
     }
 
     public long getCreatedTime()
@@ -136,5 +104,15 @@ public class Event
     public void setCreatedTime( long createdTime )
     {
         this.createdTime = createdTime;
+    }
+
+    public long getUpdatedTime()
+    {
+        return updatedTime;
+    }
+
+    public void setUpdatedTime( long updatedTime )
+    {
+        this.updatedTime = updatedTime;
     }
 }
