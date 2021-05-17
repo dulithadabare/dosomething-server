@@ -40,7 +40,7 @@ public class UserController
         UserProfile authUser = new UserProfile();
         authUser.loadAnonymousUserProfileFromJwt( jwt );
 
-        return new HttpEntity<>( new BasicResponse( dbResource.getCompleteUserProfileById( authUser.getUserId() ) ) );
+        return dbResource.getCompleteUserProfileById( authUser.getUserId() );
     }
 
     @CrossOrigin
@@ -50,7 +50,7 @@ public class UserController
         UserProfile authUser = new UserProfile();
         authUser.loadAnonymousUserProfileFromJwt( jwt );
 
-        return new HttpEntity<>( new BasicResponse( dbResource.getCurrentActivityByUserId( authUser.getUserId() ) ) );
+        return dbResource.getCurrentActivityByUserId( authUser.getUserId() );
     }
 
     @CrossOrigin
@@ -65,7 +65,7 @@ public class UserController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.updateUserLocation( userLocation, authUser.getUserId() ) ) );
+        return dbResource.updateUserLocation( userLocation, authUser.getUserId() );
     }
 
     @CrossOrigin

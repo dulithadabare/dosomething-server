@@ -1,6 +1,7 @@
 package com.dulithadabare.dosomething;
 
 import com.dulithadabare.dosomething.model.BasicResponse;
+import com.dulithadabare.dosomething.resource.DBResource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,6 +21,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.net.URISyntaxException;
 import java.sql.*;
 import java.util.Arrays;
 import java.util.Collections;
@@ -68,9 +70,9 @@ public class SpringSecurityConfig extends WebSecurityConfigurerAdapter
     Integer getUserIdByFirebaseUid(Object uid )
     {
         Integer userId = -1;
-        try( Connection conn = DriverManager.getConnection( "jdbc:mariadb://localhost:3306/dosomething_db", "demoroot", "demoroot" ) )
+        try( Connection conn = DBResource.getConnection() )
         {
-            String checkNew = "SELECT u.id FROM user u WHERE  u.firebase_uid = ?";
+            String checkNew = "SELECT u.id FROM user_profile u WHERE  u.firebase_uid = ?";
 
             try ( PreparedStatement ps = conn.prepareStatement( checkNew ) )
             {
@@ -100,7 +102,7 @@ public class SpringSecurityConfig extends WebSecurityConfigurerAdapter
                 return null;
             }
         }
-        catch ( SQLException e )
+        catch ( SQLException | URISyntaxException e )
         {
             e.printStackTrace();
             return null;

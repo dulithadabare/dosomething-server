@@ -27,7 +27,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.createEvent( event, userProfile.getUserId() ) ) );
+        return dbResource.createEvent( event, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -42,7 +42,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.createConfirmedEvent( event, userProfile.getUserId() ) ) );
+        return dbResource.createConfirmedEvent( event, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -61,6 +61,21 @@ public class EventController
     }
 
     @CrossOrigin
+    @DeleteMapping( "/confirmed-events/{confirmedEventId}" )
+    public HttpEntity<BasicResponse> cancelConfirmedEvent( @PathVariable long confirmedEventId, @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.cancelConfirmedEvent( confirmedEventId, userProfile.getUserId() );
+    }
+
+    @CrossOrigin
     @GetMapping( "" )
     public HttpEntity<BasicResponse> getEventsCreatedByUser( @AuthenticationPrincipal Jwt jwt )
     {
@@ -72,9 +87,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        List<FeedItem> feedModelList = dbResource.getEventsCreatedByUser( userProfile.getUserId() );
-
-        return new HttpEntity<>( new BasicResponse( feedModelList ) );
+        return dbResource.getEventsCreatedByUser( userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -91,9 +104,7 @@ public class EventController
 
         String hashTag = "#" + tag;
 
-        List<FeedItem> feedModelList = dbResource.getPopularEventsByTag( userProfile.getUserId(), hashTag );
-
-        return new HttpEntity<>( new BasicResponse( feedModelList ) );
+        return dbResource.getPopularEventsByTag( userProfile.getUserId(), hashTag );
     }
 
     @CrossOrigin
@@ -108,7 +119,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.getEventById(  eventId, userProfile.getUserId() ) ));
+        return dbResource.getEventById(  eventId, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -123,7 +134,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.getConfirmedEventById(  eventId, userProfile.getUserId() ) ));
+        return dbResource.getConfirmedEventById(  eventId, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -156,7 +167,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.removeEventInterest( eventId, userProfile.getUserId() ) ) );
+        return dbResource.removeEventInterest( eventId, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -201,7 +212,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.sendVisibilityRequest( eventId, userProfile.getUserId(), friendId ) ) );
+        return dbResource.sendVisibilityRequest( eventId, userProfile.getUserId(), friendId );
     }
 
     @CrossOrigin
@@ -216,7 +227,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.addEventVisibility( eventId, userProfile.getUserId(), friendId ) ) );
+        return dbResource.addEventVisibility( eventId, userProfile.getUserId(), friendId );
     }
 
     @CrossOrigin
@@ -231,7 +242,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.acceptEventInvite( eventId, userProfile.getUserId() ) ) );
+        return dbResource.acceptEventInvite( eventId, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -246,7 +257,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.declineEventInvite( eventId, userProfile.getUserId() ) ) );
+        return dbResource.declineEventInvite( eventId, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -336,7 +347,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( dbResource.removeEventVisibility( eventId, userProfile.getUserId() ) ) );
+        return dbResource.removeEventVisibility( eventId, userProfile.getUserId() );
     }
 
     @CrossOrigin

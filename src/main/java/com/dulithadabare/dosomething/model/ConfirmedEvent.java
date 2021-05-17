@@ -1,11 +1,7 @@
 package com.dulithadabare.dosomething.model;
 
-import com.dulithadabare.dosomething.resource.DBResource;
-
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 public class ConfirmedEvent extends Event
 {
@@ -16,8 +12,7 @@ public class ConfirmedEvent extends Event
     private boolean isPublic;
     private boolean isHappening;
     private boolean isCancelled;
-    private List<InvitedUser> participantList;
-    private List<InvitedUser> removedInvitedUserList;
+    private Set<Integer> invitedList;
     private int participantCount;
 
     public ConfirmedEvent()
@@ -127,24 +122,14 @@ public class ConfirmedEvent extends Event
         this.participantCount = participantCount;
     }
 
-    public List<InvitedUser> getParticipantList()
+    public Set<Integer> getInvitedList()
     {
-        return participantList;
+        return invitedList;
     }
 
-    public void setParticipantList( List<InvitedUser> participantList )
+    public void setInvitedList( Set<Integer> invitedList )
     {
-        this.participantList = participantList;
-    }
-
-    public List<InvitedUser> getRemovedInvitedUserList()
-    {
-        return removedInvitedUserList;
-    }
-
-    public void setRemovedInvitedUserList( List<InvitedUser> removedInvitedUserList )
-    {
-        this.removedInvitedUserList = removedInvitedUserList;
+        this.invitedList = invitedList;
     }
 
     public boolean isCancelled()
