@@ -4317,7 +4317,7 @@ public class DBResource
 
         //Load current user_profile details
         UserProfile currUser = getCompleteUserProfileById( userId, conn );
-        List<CurrentActivity> currUserRecentCurrentActivityHistory = userActivityHistoryMap.get( userId );
+        List<CurrentActivity> currUserRecentCurrentActivityHistory = userActivityHistoryMap.containsKey( userId ) ? userActivityHistoryMap.get( userId ) : new ArrayList<>();
 
         for ( Integer interestedUserId : interestedUserProfileMap.keySet() )
         {
