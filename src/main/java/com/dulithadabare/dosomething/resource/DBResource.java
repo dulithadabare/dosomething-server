@@ -232,7 +232,7 @@ public class DBResource
 
                 String delimiter = " ";
 
-                for ( String facebookId : facebookFriendList.keySet() )
+                for ( String facebookId : facebookIdUserIdMap.keySet() )
                 {
                     updateSqlSb.append( delimiter );
                     updateSqlSb.append( "(?, ?), (?, ?)" );
@@ -246,7 +246,7 @@ public class DBResource
 
                     int count = 1;
 
-                    for ( String facebookId : facebookFriendList.keySet() )
+                    for ( String facebookId : facebookIdUserIdMap.keySet() )
                     {
                         ps.setInt( count++, userProfile.getUserId() );
                         ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
