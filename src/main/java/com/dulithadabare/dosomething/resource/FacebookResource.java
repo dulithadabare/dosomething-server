@@ -5,10 +5,12 @@ import com.dulithadabare.dosomething.facebook.FriendsResponse;
 import com.dulithadabare.dosomething.facebook.PictureResponse;
 import com.dulithadabare.dosomething.facebook.PublicProfile;
 import com.dulithadabare.dosomething.model.BasicResponse;
+import com.dulithadabare.dosomething.util.AppException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpStatus;
 
 import java.io.IOException;
 import java.net.URI;
@@ -21,6 +23,11 @@ import java.util.Map;
 
 public class FacebookResource
 {
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .version( HttpClient.Version.HTTP_1_1 )
+            .connectTimeout( Duration.ofSeconds( 10 ) )
+            .build();
+
     public static void main( String[] args )
     {
         ObjectMapper mapper = new ObjectMapper().configure( DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false );
@@ -39,18 +46,13 @@ public class FacebookResource
 
     }
 
-    public PublicProfile getPublicProfile( String facebookId, String facebookUserToken )
+    public PublicProfile getPublicProfile( String facebookId, String facebookUserToken ) throws IOException, InterruptedException, AppException
     {
-        PublicProfile friendsResponse = null;
-
-        HttpClient httpClient = HttpClient.newBuilder()
-                .version( HttpClient.Version.HTTP_1_1 )
-                .connectTimeout( Duration.ofSeconds( 10 ) )
-                .build();
+        PublicProfile publicProfile = null;
 
         HttpRequest request = HttpRequest.newBuilder()
                 .GET()
-                .uri( URI.create( "https://graph.facebook.com/v10.0/" + facebookId + "&access_token=" + facebookUserToken ) )
+                .uri( URI.create( "https://graph.facebook.com/v10.0/" + facebookId + "?fields=id,name,email&access_token=" + facebookUserToken ) )
                 .build();
 
         try
@@ -58,30 +60,34 @@ public class FacebookResource
             HttpResponse<String> response = httpClient.send( request, HttpResponse.BodyHandlers.ofString() );
 
             ObjectMapper mapper = new ObjectMapper().configure( DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false );
-            try
+
+            if( response.statusCode() == 200 )
             {
-                friendsResponse = mapper.readValue( response.body(), PublicProfile.class );
-                //TODO save name to database
+                try
+                {
+                    publicProfile = mapper.readValue( response.body(), PublicProfile.class );
+                }
+                catch ( JsonProcessingException e )
+                {
+                    e.printStackTrace();
+                }
             }
-            catch ( JsonProcessingException e )
+            else
             {
-                e.printStackTrace();
+                throw new AppException("Could not retrieve user data");
             }
+
         }
         catch ( IOException | InterruptedException e )
         {
-            e.printStackTrace();
+            throw e;
         }
 
-        return friendsResponse;
+        return publicProfile;
     }
     public PictureResponse getProfilePicture( String facebookId, String facebookUserToken )
     {
         PictureResponse pic = null;
-        HttpClient httpClient = HttpClient.newBuilder()
-                .version( HttpClient.Version.HTTP_1_1 )
-                .connectTimeout( Duration.ofSeconds( 10 ) )
-                .build();
 
         HttpRequest request = HttpRequest.newBuilder()
                 .GET()
@@ -113,43 +119,50 @@ public class FacebookResource
         return pic;
     }
 
-    public Map<String, String> getFacebookFriends( String facebookId, String facebookUserToken )
+    public Map<String, String> getFacebookFriends( String facebookId, String facebookUserToken ) throws AppException, IOException, InterruptedException
     {
         Map<String, String> facebookFriendList = new HashMap<>();
-        HttpClient httpClient = HttpClient.newBuilder()
-                .version( HttpClient.Version.HTTP_1_1 )
-                .connectTimeout( Duration.ofSeconds( 10 ) )
-                .build();
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .GET()
-                .uri( URI.create( "https://graph.facebook.com/v10.0/" + facebookId + "/friends?access_token=" + facebookUserToken ) )
-                .build();
+        //TODO Remove limit
+        String uri = "https://graph.facebook.com/v10.0/" + facebookId + "/friends?limit=2&access_token=" + facebookUserToken;
 
-        try
+        while ( uri != null )
         {
-            HttpResponse<String> response = httpClient.send( request, HttpResponse.BodyHandlers.ofString() );
+            FriendsResponse friendsResponse = getFriends( uri );
 
-            ObjectMapper mapper = new ObjectMapper().configure( DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false );
-            FriendsResponse friendsResponse;
-            try
+            if( friendsResponse == null )
             {
-                friendsResponse = mapper.readValue( response.body(), FriendsResponse.class );
-                for ( Friend friend : friendsResponse.getData() )
-                {
-                    facebookFriendList.put( friend.getId(), friend.getName() );
-                }
+                throw new AppException("Could not retrieve user friends list");
             }
-            catch ( JsonProcessingException e )
+
+            for ( Friend friend : friendsResponse.getData() )
             {
-                e.printStackTrace();
+                facebookFriendList.put( friend.getId(), friend.getName() );
             }
-        }
-        catch ( IOException | InterruptedException e )
-        {
-            e.printStackTrace();
+
+            uri = friendsResponse.getPaging().getNext();
         }
 
         return facebookFriendList;
+    }
+
+    private FriendsResponse getFriends( String uri ) throws IOException, InterruptedException
+    {
+        FriendsResponse friendsResponse = null;
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .GET()
+                .uri( URI.create( uri ) )
+                .build();
+
+        HttpResponse<String> response = httpClient.send( request, HttpResponse.BodyHandlers.ofString() );
+
+        if( response.statusCode() == 200 )
+        {
+            ObjectMapper mapper = new ObjectMapper().configure( DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false );
+            friendsResponse = mapper.readValue( response.body(), FriendsResponse.class );
+        }
+
+        return friendsResponse;
     }
 }

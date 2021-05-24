@@ -14,6 +14,7 @@ public class UserProfile
     private String firebaseUid;
     private String facebookId;
     private String displayName;
+    private String email;
     @JsonIgnore
     private double longitude;
     @JsonIgnore
@@ -98,6 +99,16 @@ public class UserProfile
         this.displayName = displayName;
     }
 
+    public String getEmail()
+    {
+        return email;
+    }
+
+    public void setEmail( String email )
+    {
+        this.email = email;
+    }
+
     public int getHighSchoolId()
     {
         return highSchoolId;
@@ -165,6 +176,7 @@ public class UserProfile
         this.firebaseUid = rs.getString( "firebase_uid" );
         this.facebookId = rs.getString( "facebook_id" );
         this.displayName = rs.getString( "name" );
+        this.email = rs.getString( "email" );
         this.longitude = rs.getDouble( "longitude" );
         this.latitude = rs.getDouble( "latitude" );
         this.highSchoolId = rs.getInt( "high_school_id" );

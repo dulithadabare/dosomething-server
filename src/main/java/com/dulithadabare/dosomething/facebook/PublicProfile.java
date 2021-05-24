@@ -1,5 +1,7 @@
 package com.dulithadabare.dosomething.facebook;
 
+import java.time.LocalDate;
+
 public class PublicProfile
 {
     private String id;
@@ -7,6 +9,8 @@ public class PublicProfile
     private String last_name;
     private String middle_name;
     private String name;
+    private String email;
+    private String birthday;
     private String name_format;
     private String picture;
     private String short_name;
@@ -61,6 +65,26 @@ public class PublicProfile
         this.name = name;
     }
 
+    public String getEmail()
+    {
+        return email;
+    }
+
+    public void setEmail( String email )
+    {
+        this.email = email;
+    }
+
+    public String getBirthday()
+    {
+        return birthday;
+    }
+
+    public void setBirthday( String birthday )
+    {
+        this.birthday = birthday;
+    }
+
     public String getName_format()
     {
         return name_format;
@@ -89,5 +113,10 @@ public class PublicProfile
     public void setShort_name( String short_name )
     {
         this.short_name = short_name;
+    }
+
+    public LocalDate getBirthdayAsLocalDate()
+    {
+        return LocalDate.parse( this.birthday );
     }
 }

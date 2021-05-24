@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS user_profile (
     facebook_id VARCHAR(20) DEFAULT NULL,
     firebase_uid VARCHAR(30) NOT NULL,
     name VARCHAR(50) DEFAULT NULL,
+    email VARCHAR(500) DEFAULT NULL,
+    birthday DATE DEFAULT NULL,
     longitude NUMERIC(15, 13) DEFAULT NULL,
     latitude NUMERIC(15, 13) DEFAULT NULL,
     high_school_id INT NULL,

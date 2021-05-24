@@ -1,10 +1,13 @@
 package com.dulithadabare.dosomething.resource;
 
 import com.dulithadabare.dosomething.constant.PrivacyPreference;
+import com.dulithadabare.dosomething.facebook.PublicProfile;
 import com.dulithadabare.dosomething.model.*;
+import com.dulithadabare.dosomething.util.AppException;
 import com.dulithadabare.dosomething.util.LocationHelper;
 import org.springframework.http.HttpEntity;
 
+import java.io.IOException;
 import java.net.URISyntaxException;
 import java.sql.*;
 import java.sql.Date;
@@ -147,17 +150,20 @@ public class DBResource
         {
             // update user_profile details from facebook
 
-//            PublicProfile publicProfile = facebookResource.getPublicProfile( userProfile.getFacebookId(), facebookUserToken );
+            PublicProfile publicProfile = facebookResource.getPublicProfile( userProfile.getFacebookId(), facebookUserToken );
 //            PictureResponse pictureResponse = facebookResource.getProfilePicture( userProfile.getFacebookId(), facebookUserToken );
 
-            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE user_profile SET name = ? )" ) )
+            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE user_profile SET facebook_id = ?, name = ?, email = ? WHERE id = ?" ) )
             {
 
                 ps.setFetchSize( 1000 );
 
                 int count = 1;
 
-                ps.setString( count++, userProfile.getDisplayName() );
+                ps.setString( count++, publicProfile.getId() );
+                ps.setString( count++, publicProfile.getName() );
+                ps.setString( count++, publicProfile.getEmail() );
+                ps.setLong( count++, userProfile.getUserId() );
 
                 //execute query
                 ps.executeUpdate();
@@ -173,7 +179,7 @@ public class DBResource
 
             Map<String, String> facebookFriendList = facebookResource.getFacebookFriends( userProfile.getFacebookId(), facebookUserToken );
 
-            // Get friend user_profile ids from DB
+            // Get friend user ids using the friend facebook ID
 
             Map<String, Integer> facebookIdUserIdMap = new HashMap<>();
 
@@ -217,59 +223,46 @@ public class DBResource
                     }
 
                 }
-                catch ( SQLException e )
-                {
-                    e.printStackTrace();
-                    return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-                }
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
             }
 
-            // Create Friends list
-
-            StringBuilder updateSqlSb = new StringBuilder( "INSERT INTO friend VALUES " );
-
-            String delimiter = " ";
-
-            for ( String facebookId : facebookFriendList.keySet() )
+            if( !facebookIdUserIdMap.isEmpty() )
             {
-                updateSqlSb.append( delimiter );
-                updateSqlSb.append( "(?, ?), (?, ?)" );
-                delimiter = ", ";
-            }
+                // Create Friends list
+                StringBuilder updateSqlSb = new StringBuilder( "INSERT INTO friend VALUES " );
 
-            try ( PreparedStatement ps = conn.prepareStatement( updateSqlSb.toString() ) )
-            {
-
-                ps.setFetchSize( 1000 );
-
-                int count = 1;
+                String delimiter = " ";
 
                 for ( String facebookId : facebookFriendList.keySet() )
                 {
-                    ps.setInt( count++, userProfile.getUserId() );
-                    ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
-                    ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
-                    ps.setInt( count++, userProfile.getUserId() );
+                    updateSqlSb.append( delimiter );
+                    updateSqlSb.append( "(?, ?), (?, ?)" );
+                    delimiter = ", ";
                 }
 
-                //execute query
-                ps.executeUpdate();
+                try ( PreparedStatement ps = conn.prepareStatement( updateSqlSb.toString() ) )
+                {
 
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+                    ps.setFetchSize( 1000 );
+
+                    int count = 1;
+
+                    for ( String facebookId : facebookFriendList.keySet() )
+                    {
+                        ps.setInt( count++, userProfile.getUserId() );
+                        ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
+                        ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
+                        ps.setInt( count++, userProfile.getUserId() );
+                    }
+
+                    //execute query
+                    ps.executeUpdate();
+
+                }
             }
 
             updatedProfile = getCompleteUserProfileById( userProfile.getUserId(), conn );
         }
-        catch ( SQLException | URISyntaxException e )
+        catch ( SQLException | URISyntaxException | InterruptedException | IOException | AppException e )
         {
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
@@ -1112,7 +1105,7 @@ public class DBResource
             {
                 try ( PreparedStatement ps = conn.prepareStatement( "UPDATE confirmed_event SET " +
                         " date = ?," +
-                        " time = ?," +
+                        " time = ?" +
                         " WHERE id = ?" ) )
                 {
 
@@ -4236,6 +4229,7 @@ public class DBResource
                 "u.facebook_id, " +
                 "u.firebase_uid, " +
                 "u.name, " +
+                "u.email, " +
                 "u.latitude, " +
                 "u.longitude, " +
                 "u.high_school_id, " +
@@ -4507,6 +4501,7 @@ public class DBResource
                 "u.facebook_id, " +
                 "u.firebase_uid, " +
                 "u.name, " +
+                "u.email, " +
                 "u.latitude, " +
                 "u.longitude, " +
                 "u.high_school_id, " +
