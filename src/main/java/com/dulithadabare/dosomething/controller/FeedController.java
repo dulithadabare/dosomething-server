@@ -15,7 +15,8 @@ public class FeedController
 
     @CrossOrigin
     @PostMapping( "/popular" )
-    public HttpEntity<BasicResponse> getPopularFeed( @RequestBody PopularFeedRequest popularRequest, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getPopularFeed( @RequestBody PopularFeedRequest popularRequest,
+                                                     @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -30,7 +31,9 @@ public class FeedController
 
     @CrossOrigin
     @GetMapping( "/happening" )
-    public HttpEntity<BasicResponse> getHappeningFeed( @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getHappeningFeed( @AuthenticationPrincipal Jwt jwt,
+                                                       @RequestParam( name = "pageKey", required = false ) String pageKey
+    )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -40,12 +43,14 @@ public class FeedController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getHappeningFeed( userProfile.getUserId() );
+        return dbResource.getHappeningFeed( userProfile.getUserId(), pageKey );
     }
 
     @CrossOrigin
     @GetMapping( "/upcoming" )
-    public HttpEntity<BasicResponse> getUpcomingEventFeed( @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getUpcomingEventFeed( @AuthenticationPrincipal Jwt jwt,
+                                                           @RequestParam( name = "pageKey", required = false ) String pageKey
+                                                           )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -55,7 +60,7 @@ public class FeedController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getUpcomingFeed( userProfile.getUserId() );
+        return dbResource.getUpcomingFeed( userProfile.getUserId(), pageKey );
     }
 
 }

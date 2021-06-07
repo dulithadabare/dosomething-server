@@ -3,9 +3,9 @@ package com.dulithadabare.dosomething.model;
 public class EventInvited
 {
     private long eventId;
-    private int userId;
+    private Long userId;
     private String description;
-    private boolean isConfirmed;
+    private Boolean isConfirmed;
 
     public long getEventId()
     {
@@ -17,12 +17,12 @@ public class EventInvited
         this.eventId = eventId;
     }
 
-    public int getUserId()
+    public Long getUserId()
     {
         return userId;
     }
 
-    public void setUserId( int userId )
+    public void setUserId( Long userId )
     {
         this.userId = userId;
     }

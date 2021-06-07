@@ -1,6 +1,7 @@
 package com.dulithadabare.dosomething.model;
 
 import java.sql.*;
+import java.time.OffsetDateTime;
 import java.util.Set;
 
 public class ConfirmedEvent extends Event
@@ -12,7 +13,7 @@ public class ConfirmedEvent extends Event
     private boolean isPublic;
     private boolean isHappening;
     private boolean isCancelled;
-    private Set<Integer> invitedList;
+    private Set<Long> invitedList;
     private int participantCount;
 
     public ConfirmedEvent()
@@ -25,10 +26,10 @@ public class ConfirmedEvent extends Event
     {
         this.id = rs.getLong( "id" );
         this.eventId = rs.getLong( "event_id" );
-        this.creatorId = rs.getInt( "creator_id" );
+        this.creatorId = rs.getLong( "creator_id" );
         this.description = rs.getString( "description" );
-        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
-        this.createdTime = rs.getTimestamp( "created_time" ).getTime();
+        this.createdTime = rs.getObject( "created_time", OffsetDateTime.class );
+        this.updatedTime = rs.getObject( "updated_time", OffsetDateTime.class );
 
         Date date = rs.getDate( "date" );
         Time time = rs.getTime( "time" );
@@ -46,10 +47,10 @@ public class ConfirmedEvent extends Event
     {
         this.id = rs.getLong( "id" );
         this.description = rs.getString( "description" );
-        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
-        this.createdTime = rs.getTimestamp( "created_time" ).getTime();
+        this.createdTime = rs.getObject( "created_time", OffsetDateTime.class );
+        this.updatedTime = rs.getObject( "updated_time", OffsetDateTime.class );
         this.isHappening = rs.getBoolean( "is_happening" );
-        this.creatorId = -1;
+        this.creatorId = -1L;
     }
 
     public String getCreatorDisplayName()
@@ -122,12 +123,12 @@ public class ConfirmedEvent extends Event
         this.participantCount = participantCount;
     }
 
-    public Set<Integer> getInvitedList()
+    public Set<Long> getInvitedList()
     {
         return invitedList;
     }
 
-    public void setInvitedList( Set<Integer> invitedList )
+    public void setInvitedList( Set<Long> invitedList )
     {
         this.invitedList = invitedList;
     }

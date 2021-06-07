@@ -1,12 +1,15 @@
 package com.dulithadabare.dosomething.model;
 
+import java.time.OffsetDateTime;
+
 public class EventInterest
 {
     private long eventId;
-    private int userId;
+    private Long userId;
+    private OffsetDateTime createdTime;
     private String description;
 
-    public EventInterest( long eventId, int userId, String description )
+    public EventInterest( long eventId, Long userId, String description )
     {
         this.eventId = eventId;
         this.userId = userId;
@@ -23,12 +26,12 @@ public class EventInterest
         this.eventId = eventId;
     }
 
-    public int getUserId()
+    public Long getUserId()
     {
         return userId;
     }
 
-    public void setUserId( int userId )
+    public void setUserId( Long userId )
     {
         this.userId = userId;
     }
@@ -41,5 +44,15 @@ public class EventInterest
     public void setDescription( String description )
     {
         this.description = description;
+    }
+
+    public OffsetDateTime getCreatedTime()
+    {
+        return createdTime;
+    }
+
+    public void setCreatedTime( OffsetDateTime createdTime )
+    {
+        this.createdTime = createdTime;
     }
 }

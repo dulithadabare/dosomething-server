@@ -2,30 +2,31 @@ package com.dulithadabare.dosomething.model;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 public class Event
 {
     protected long id;
-    protected int creatorId;
+    protected Long creatorId;
     protected String description;
     protected boolean isConfirmed;
     protected int interestedCount;
     protected int visibilityPreference;
-    protected long createdTime;
-    protected long updatedTime;
+    protected OffsetDateTime createdTime;
+    protected OffsetDateTime updatedTime;
     protected List<String> tagList = new ArrayList<>();
 
     public void load( ResultSet rs ) throws SQLException
     {
         this.id = rs.getLong( "id" );
-        this.creatorId = rs.getInt( "creator_id" );
+        this.creatorId = rs.getLong( "creator_id" );
         this.description = rs.getString( "description" );
         this.isConfirmed = rs.getBoolean( "is_confirmed" );
         this.visibilityPreference = rs.getInt( "visibility_preference" );
-        this.createdTime = rs.getTimestamp( "created_time" ).getTime();
-        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
+        this.createdTime = rs.getObject( "created_time", OffsetDateTime.class );
+        this.updatedTime = rs.getObject( "updated_time", OffsetDateTime.class );
     }
 
     public long getId()
@@ -38,11 +39,11 @@ public class Event
         this.id = id;
     }
 
-    public int getCreatorId() {
+    public Long getCreatorId() {
         return creatorId;
     }
 
-    public void setCreatorId( int creatorId ) {
+    public void setCreatorId( Long creatorId ) {
         this.creatorId = creatorId;
     }
 
@@ -96,22 +97,22 @@ public class Event
         this.tagList = tagList;
     }
 
-    public long getCreatedTime()
+    public OffsetDateTime getCreatedTime()
     {
         return createdTime;
     }
 
-    public void setCreatedTime( long createdTime )
+    public void setCreatedTime( OffsetDateTime createdTime )
     {
         this.createdTime = createdTime;
     }
 
-    public long getUpdatedTime()
+    public OffsetDateTime getUpdatedTime()
     {
         return updatedTime;
     }
 
-    public void setUpdatedTime( long updatedTime )
+    public void setUpdatedTime( OffsetDateTime updatedTime )
     {
         this.updatedTime = updatedTime;
     }

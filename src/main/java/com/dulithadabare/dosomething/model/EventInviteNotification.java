@@ -1,22 +1,12 @@
 package com.dulithadabare.dosomething.model;
 
+import com.dulithadabare.dosomething.constant.AppNotificationType;
+
 public class EventInviteNotification extends EventNotification
 {
-    private UserProfile user;
-
-    public UserProfile getUser()
-    {
-        return user;
-    }
-
-    public void setUser( UserProfile user )
-    {
-        this.user = user;
-    }
-
     @Override
-    public int getNotificationType()
+    public AppNotificationType getType()
     {
-        return EVENT_INVITE_NOTIFICATION;
+        return AppNotificationType.EVENT_INVITE;
     }
 }

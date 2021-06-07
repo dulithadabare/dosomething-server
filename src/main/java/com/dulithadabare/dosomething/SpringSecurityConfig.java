@@ -50,7 +50,7 @@ public class SpringSecurityConfig extends WebSecurityConfigurerAdapter
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins( Arrays.asList( "*" ) );
         configuration.setAllowedMethods( Arrays.asList( "HEAD", "GET", "POST", "PUT", "DELETE", "PATCH" ) );
-        configuration.setAllowedHeaders( Arrays.asList( "Authorization", "Cache-Control", "Content-Type" ) );
+        configuration.setAllowedHeaders( Arrays.asList( "Authorization", "Cache-Control", "Content-Type", "X-USER-TIMEZONE" ) );
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration( "/**", configuration );
         return source;
@@ -67,9 +67,9 @@ public class SpringSecurityConfig extends WebSecurityConfigurerAdapter
         return jwtDecoder;
     }
 
-    Integer getUserIdByFirebaseUid(Object uid )
+    Long getUserIdByFirebaseUid(Object uid )
     {
-        Integer userId = -1;
+        Long userId = -1L;
         try( Connection conn = DBResource.getConnection() )
         {
             String checkNew = "SELECT u.id FROM user_profile u WHERE  u.firebase_uid = ?";
@@ -88,7 +88,7 @@ public class SpringSecurityConfig extends WebSecurityConfigurerAdapter
 
                     while ( rs.next() )
                     {
-                        userId = rs.getInt( 1 );
+                        userId = rs.getLong( 1 );
                     }
 
                 } catch ( SQLException e )

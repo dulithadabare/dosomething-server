@@ -3,7 +3,7 @@ package com.dulithadabare.dosomething.model;
 public class EventJoinRequest
 {
     private long eventId;
-    private int userId;
+    private Long userId;
     private long createdTime;
 
     public long getEventId()
@@ -16,12 +16,12 @@ public class EventJoinRequest
         this.eventId = eventId;
     }
 
-    public int getUserId()
+    public Long getUserId()
     {
         return userId;
     }
 
-    public void setUserId( int userId )
+    public void setUserId( Long userId )
     {
         this.userId = userId;
     }

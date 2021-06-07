@@ -1,5 +1,9 @@
 package com.dulithadabare.dosomething.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.time.OffsetDateTime;
+
 public class UpcomingFeedItem
 {
     private Event event;
@@ -13,6 +17,7 @@ public class UpcomingFeedItem
     private boolean isInvited;
     private boolean isParticipant;
     private boolean isJoinRequested;
+    private OffsetDateTime firstInterestedTime;
 
     public Event getEvent()
     {
@@ -122,6 +127,22 @@ public class UpcomingFeedItem
     public void setJoinRequested( boolean joinRequested )
     {
         isJoinRequested = joinRequested;
+    }
+
+    public OffsetDateTime getFirstInterestedTime()
+    {
+        return firstInterestedTime;
+    }
+
+    public void setFirstInterestedTime( OffsetDateTime firstInterestedTime )
+    {
+        this.firstInterestedTime = firstInterestedTime;
+    }
+
+    @JsonProperty("timestampUtc")
+    public long getTimestampUtc()
+    {
+        return this.firstInterestedTime.toInstant().toEpochMilli();
     }
 }
 

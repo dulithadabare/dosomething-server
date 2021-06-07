@@ -7,8 +7,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.*;
-
 @RestController
 @RequestMapping( "/events" )
 public class EventController
@@ -76,21 +74,6 @@ public class EventController
     }
 
     @CrossOrigin
-    @GetMapping( "" )
-    public HttpEntity<BasicResponse> getEventsCreatedByUser( @AuthenticationPrincipal Jwt jwt )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        if ( userProfile.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.getEventsCreatedByUser( userProfile.getUserId() );
-    }
-
-    @CrossOrigin
     @GetMapping( "/tags/{tag}" )
     public HttpEntity<BasicResponse> getPopularEventsByTag( @PathVariable String tag, @AuthenticationPrincipal Jwt jwt )
     {
@@ -119,7 +102,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getEventById(  eventId, userProfile.getUserId() );
+        return dbResource.loadEventResponseById(  eventId, userProfile.getUserId() );
     }
 
     @CrossOrigin
@@ -139,7 +122,7 @@ public class EventController
 
     @CrossOrigin
     @PostMapping( "/{eventId}/users" )
-    public HttpEntity<BasicResponse> addEventInterest( @PathVariable long eventId, @RequestBody EventInterest eventInterest, @AuthenticationPrincipal Jwt jwt, @RequestParam(name = "timestamp") long timestamp  )
+    public HttpEntity<BasicResponse> addEventInterest( @PathVariable long eventId, @RequestBody EventInterest eventInterest, @AuthenticationPrincipal Jwt jwt  )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -152,7 +135,7 @@ public class EventController
         eventInterest.setEventId( eventId );
         eventInterest.setUserId( userProfile.getUserId() );
 
-        return dbResource.addEventInterest( eventId, userProfile.getUserId(), eventInterest, timestamp );
+        return dbResource.addEventInterest( eventId, userProfile.getUserId(), eventInterest );
     }
 
     @CrossOrigin
@@ -172,7 +155,10 @@ public class EventController
 
     @CrossOrigin
     @GetMapping( "/{eventId}/friends" )
-    public HttpEntity<BasicResponse> getInterestedFriends( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getInterestedFriends( @PathVariable long eventId,
+                                                           @AuthenticationPrincipal Jwt jwt,
+                                                           @RequestParam( name = "pageKey", required = false ) String pageKey
+    )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -182,12 +168,52 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getInterestedFriendList(  eventId, userProfile.getUserId() );
+        return dbResource.getInterestedFriendList(  eventId, userProfile.getUserId(), pageKey );
+    }
+
+    @CrossOrigin
+    @GetMapping( "/{confirmedEventId}/invites" )
+    public HttpEntity<BasicResponse> getInviteFriendsPage( @PathVariable Long confirmedEventId,
+                                                           @AuthenticationPrincipal Jwt jwt,
+                                                           @RequestParam( name = "eventId", required = false ) Long eventId,
+                                                           @RequestParam( name = "pageKey", required = false ) String pageKey
+    )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.getInviteFriendPage( confirmedEventId,  eventId, userProfile.getUserId(), pageKey );
+    }
+
+    @CrossOrigin
+    @PostMapping( "/{confirmedEventId}/invites" )
+    public HttpEntity<BasicResponse> addInvites( @PathVariable Long confirmedEventId,
+                                                 @RequestBody ConfirmedEvent event,
+                                                 @AuthenticationPrincipal Jwt jwt
+    )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.addInvites( event, userProfile.getUserId() );
     }
 
     @CrossOrigin
     @GetMapping( "/{eventId}/invitees" )
-    public HttpEntity<BasicResponse> getInvitedUserList( @PathVariable long eventId, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getInvitedUserList( @PathVariable long eventId,
+                                                         @AuthenticationPrincipal Jwt jwt,
+                                                         @RequestParam( name = "pageKey", required = false ) String pageKey
+                                                         )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -197,12 +223,12 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getInvitedUserList(  eventId, userProfile.getUserId() );
+        return dbResource.getInvitedList(  eventId, userProfile.getUserId(), pageKey );
     }
 
     @CrossOrigin
-    @PostMapping( "/{eventId}/visibility-requests/{friendId}" )
-    public HttpEntity<BasicResponse> sendVisibilityRequest( @PathVariable long eventId, @PathVariable int friendId, @AuthenticationPrincipal Jwt jwt  )
+    @PostMapping( "/{eventId}/peek/{friendId}" )
+    public HttpEntity<BasicResponse> sendVisibilityRequest( @PathVariable long eventId, @PathVariable int friendId, @AuthenticationPrincipal Jwt jwt, @RequestHeader("X-USER-TIMEZONE") String userTimeZone  )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -212,22 +238,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.sendVisibilityRequest( eventId, userProfile.getUserId(), friendId );
-    }
-
-    @CrossOrigin
-    @PostMapping( "/{eventId}/visibility/{friendId}" )
-    public HttpEntity<BasicResponse> addEventVisibility( @PathVariable long eventId, @PathVariable int friendId, @AuthenticationPrincipal Jwt jwt  )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        if ( userProfile.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.addEventVisibility( eventId, userProfile.getUserId(), friendId );
+        return dbResource.sendVisibilityRequest( eventId, userProfile.getUserId(), friendId, userTimeZone );
     }
 
     @CrossOrigin
@@ -322,7 +333,7 @@ public class EventController
 
     @CrossOrigin
     @PutMapping( "/{eventId}/join/{requesterId}" )
-    public HttpEntity<BasicResponse> acceptJoinRequest( @PathVariable long eventId, @PathVariable int requesterId, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> acceptJoinRequest( @PathVariable long eventId, @PathVariable Long requesterId, @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -332,7 +343,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.acceptJoinRequest( eventId, requesterId );
+        return dbResource.acceptJoinRequest( eventId, userProfile.getUserId(), requesterId );
     }
 
     @CrossOrigin
@@ -352,7 +363,10 @@ public class EventController
 
     @CrossOrigin
     @GetMapping( "/{confirmedEventId}/active" )
-    public HttpEntity<BasicResponse> getActiveFriendListByEventId( @PathVariable long confirmedEventId, @AuthenticationPrincipal Jwt jwt )
+    public HttpEntity<BasicResponse> getActiveFriendListByEventId( @PathVariable long confirmedEventId,
+                                                                   @AuthenticationPrincipal Jwt jwt,
+                                                                   @RequestParam( name = "pageKey", required = false ) String pageKey
+    )
     {
         UserProfile userProfile = new UserProfile();
         userProfile.loadUserProfileFromJwt( jwt );
@@ -362,7 +376,7 @@ public class EventController
             return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
         }
 
-        return dbResource.getActiveFriendListByEventId( confirmedEventId, userProfile.getUserId() );
+        return dbResource.getActivePage( confirmedEventId, userProfile.getUserId(), pageKey );
     }
 
 }

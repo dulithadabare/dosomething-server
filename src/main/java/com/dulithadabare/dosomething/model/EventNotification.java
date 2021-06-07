@@ -1,28 +1,51 @@
 package com.dulithadabare.dosomething.model;
 
+import com.dulithadabare.dosomething.constant.AppNotificationType;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import java.time.OffsetDateTime;
+import java.util.List;
+
 public class EventNotification
 {
-    public static final int EVENT_INTEREST_NOTIFICATION = 1;
-    public static final int VISIBILITY_REVEAL_NOTIFICATION = 2;
-    public static final int EVENT_INVITE_NOTIFICATION = 3;
-    public static final int EVENT_ACCEPT_NOTIFICATION = 4;
-    public static final int EVENT_VISIBILITY_REQUEST = 5;
+    private long eventId;
+    private List<Long> data;
+    @JsonIgnore
+    private OffsetDateTime timestampUtc;
+    private AppNotificationType type;
 
-    private Event event;
-    private int notificationType;
-
-    public Event getEvent()
+    public long getEventId()
     {
-        return event;
+        return eventId;
     }
 
-    public void setEvent( Event event )
+    public void setEventId( long eventId )
     {
-        this.event = event;
+        this.eventId = eventId;
     }
 
-    public int getNotificationType()
+    public List<Long> getData()
     {
-        return 0;
+        return data;
+    }
+
+    public void setData( List<Long> data )
+    {
+        this.data = data;
+    }
+
+    public OffsetDateTime getTimestampUtc()
+    {
+        return timestampUtc;
+    }
+
+    public void setTimestampUtc( OffsetDateTime timestampUtc )
+    {
+        this.timestampUtc = timestampUtc;
+    }
+
+    public AppNotificationType getType()
+    {
+        return AppNotificationType.NONE;
     }
 }

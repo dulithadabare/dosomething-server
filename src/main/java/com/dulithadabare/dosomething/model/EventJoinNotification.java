@@ -2,11 +2,11 @@ package com.dulithadabare.dosomething.model;
 
 import com.dulithadabare.dosomething.constant.AppNotificationType;
 
-public class EventInterestNotification extends EventNotification
+public class EventJoinNotification extends EventNotification
 {
     @Override
     public AppNotificationType getType()
     {
-        return AppNotificationType.EVENT_INTEREST;
+        return AppNotificationType.EVENT_JOIN;
     }
 }

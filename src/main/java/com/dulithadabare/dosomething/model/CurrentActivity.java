@@ -1,38 +1,41 @@
 package com.dulithadabare.dosomething.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 
 public class CurrentActivity
 {
-    private int userId;
-    private long eventId;
+    private Long userId;
+    private Long eventId;
     private boolean isActive;
-    private long updatedTime;
+    private OffsetDateTime updatedTime;
 
     public void load( ResultSet rs ) throws SQLException
     {
-        this.userId = rs.getInt( "user_id" );
+        this.userId = rs.getLong( "user_id" );
         this.eventId = rs.getLong( "event_id" );
-        this.updatedTime = rs.getTimestamp( "updated_time" ).getTime();
+        this.updatedTime = rs.getObject( "updated_time", OffsetDateTime.class );
     }
 
-    public int getUserId()
+    public Long getUserId()
     {
         return userId;
     }
 
-    public void setUserId( int userId )
+    public void setUserId( Long userId )
     {
         this.userId = userId;
     }
 
-    public long getEventId()
+    public Long getEventId()
     {
         return eventId;
     }
 
-    public void setEventId( long eventId )
+    public void setEventId( Long eventId )
     {
         this.eventId = eventId;
     }
@@ -47,13 +50,19 @@ public class CurrentActivity
         isActive = active;
     }
 
-    public long getUpdatedTime()
+    public OffsetDateTime getUpdatedTime()
     {
         return updatedTime;
     }
 
-    public void setUpdatedTime( long updatedTime )
+    public void setUpdatedTime( OffsetDateTime updatedTime )
     {
         this.updatedTime = updatedTime;
+    }
+
+    @JsonProperty("timestampUtc")
+    public long getTimestampUtc()
+    {
+        return this.updatedTime.toInstant().toEpochMilli();
     }
 }

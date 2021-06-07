@@ -5,15 +5,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-public class HappeningFeedItem extends ActiveFeedItem
+public class ActivityHistoryFeedItem
 {
     private ConfirmedEvent event;
-    private int activeFriendCount;
+    private int activeCount;
     private boolean isInvited;
     private boolean isParticipant;
     private boolean isCreatorFriend;
     private boolean isJoinRequested;
-    private OffsetDateTime startTime;
+    private OffsetDateTime activeTime;
     private List<BasicProfile> confirmedParticipantList;
 
     public ConfirmedEvent getEvent()
@@ -26,14 +26,14 @@ public class HappeningFeedItem extends ActiveFeedItem
         this.event = event;
     }
 
-    public int getActiveFriendCount()
+    public int getActiveCount()
     {
-        return activeFriendCount;
+        return activeCount;
     }
 
-    public void setActiveFriendCount( int activeFriendCount )
+    public void setActiveCount( int activeCount )
     {
-        this.activeFriendCount = activeFriendCount;
+        this.activeCount = activeCount;
     }
 
     public boolean isInvited()
@@ -76,14 +76,14 @@ public class HappeningFeedItem extends ActiveFeedItem
         isJoinRequested = joinRequested;
     }
 
-    public OffsetDateTime getStartTime()
+    public OffsetDateTime getActiveTime()
     {
-        return startTime;
+        return activeTime;
     }
 
-    public void setStartTime( OffsetDateTime startTime )
+    public void setActiveTime( OffsetDateTime activeTime )
     {
-        this.startTime = startTime;
+        this.activeTime = activeTime;
     }
 
     public List<BasicProfile> getConfirmedParticipantList()
@@ -99,6 +99,6 @@ public class HappeningFeedItem extends ActiveFeedItem
     @JsonProperty("timestampUtc")
     public long getTimestampUtc()
     {
-        return this.startTime.toInstant().toEpochMilli();
+        return this.activeTime.toInstant().toEpochMilli();
     }
 }

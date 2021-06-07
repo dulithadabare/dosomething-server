@@ -2,23 +2,23 @@ package com.dulithadabare.dosomething.model;
 
 public class JoinRequest
 {
-    private UserProfile user;
+    private BasicProfile user;
     private long eventId;
     private long createdTime;
 
-    public JoinRequest( UserProfile user, long eventId, long createdTime )
+    public JoinRequest( BasicProfile user, long eventId, long createdTime )
     {
         this.user = user;
         this.eventId = eventId;
         this.createdTime = createdTime;
     }
 
-    public UserProfile getUser()
+    public BasicProfile getUser()
     {
         return user;
     }
 
-    public void setUser( UserProfile user )
+    public void setUser( BasicProfile user )
     {
         this.user = user;
     }

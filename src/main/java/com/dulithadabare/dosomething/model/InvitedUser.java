@@ -2,40 +2,40 @@ package com.dulithadabare.dosomething.model;
 
 public class InvitedUser
 {
-    private UserProfile user;
-    private int userId;
-    private boolean isConfirmed;
+    private BasicProfile user;
+    private Long userId;
+    private Boolean isConfirmed;
     private String distance;
     private String relationship;
     private boolean isVisibilityRequested;
     private boolean isFriend;
 
-    public UserProfile getUser()
+    public BasicProfile getUser()
     {
         return user;
     }
 
-    public void setUser( UserProfile user )
+    public void setUser( BasicProfile user )
     {
         this.user = user;
     }
 
-    public int getUserId()
+    public Long getUserId()
     {
         return userId;
     }
 
-    public void setUserId( int userId )
+    public void setUserId( Long userId )
     {
         this.userId = userId;
     }
 
-    public boolean isConfirmed()
+    public Boolean isConfirmed()
     {
         return isConfirmed;
     }
 
-    public void setConfirmed( boolean confirmed )
+    public void setConfirmed( Boolean confirmed )
     {
         isConfirmed = confirmed;
     }

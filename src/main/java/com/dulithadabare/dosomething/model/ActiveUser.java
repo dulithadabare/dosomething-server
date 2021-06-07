@@ -2,26 +2,38 @@ package com.dulithadabare.dosomething.model;
 
 public class ActiveUser
 {
-    UserProfile user;
-    long createdTime;
+    Long participantId;
+    boolean isFriend;
+    boolean isActive;
 
-    public UserProfile getUser()
+
+    public Long getParticipantId()
     {
-        return user;
+        return participantId;
     }
 
-    public void setUser( UserProfile user )
+    public void setParticipantId( Long participantId )
     {
-        this.user = user;
+        this.participantId = participantId;
     }
 
-    public long getCreatedTime()
+    public boolean isFriend()
     {
-        return createdTime;
+        return isFriend;
     }
 
-    public void setCreatedTime( long createdTime )
+    public void setFriend( boolean friend )
     {
-        this.createdTime = createdTime;
+        isFriend = friend;
+    }
+
+    public boolean isActive()
+    {
+        return isActive;
+    }
+
+    public void setActive( boolean active )
+    {
+        isActive = active;
     }
 }

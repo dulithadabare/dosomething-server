@@ -10,7 +10,7 @@ import java.sql.SQLException;
 
 public class UserProfile
 {
-    private Integer userId;
+    private Long userId;
     private String firebaseUid;
     private String facebookId;
     private String displayName;
@@ -25,13 +25,14 @@ public class UserProfile
     private int universityId;
     @JsonIgnore
     private int workPLaceId;
+    private String timeZone;
 
     public UserProfile()
     {
 
     }
 
-    public UserProfile( Integer userId, String firebaseUid, String facebookId, String displayName )
+    public UserProfile( Long userId, String firebaseUid, String facebookId, String displayName )
     {
         this.userId = userId;
         this.firebaseUid = firebaseUid;
@@ -39,12 +40,12 @@ public class UserProfile
         this.displayName = displayName;
     }
 
-    public Integer getUserId()
+    public Long getUserId()
     {
         return userId;
     }
 
-    public void setUserId( Integer userId )
+    public void setUserId( Long userId )
     {
         this.userId = userId;
     }
@@ -139,6 +140,16 @@ public class UserProfile
         this.workPLaceId = workPLaceId;
     }
 
+    public String getTimeZone()
+    {
+        return timeZone;
+    }
+
+    public void setTimeZone( String timeZone )
+    {
+        this.timeZone = timeZone;
+    }
+
     public void loadUserProfileFromJwt( Jwt jwt )
     {
          this.firebaseUid = jwt.getClaimAsString( "user_id" );
@@ -162,7 +173,7 @@ public class UserProfile
 
     public void loadFromResultSet( ResultSet rs ) throws SQLException
     {
-        this.userId = rs.getInt( "id" );
+        this.userId = rs.getLong( "id" );
 //        this.firebaseUid = rs.getString( "firebase_uid" );
 //        this.facebookId = rs.getString( "facebook_id" );
         this.displayName = rs.getString( "name" );
@@ -172,7 +183,7 @@ public class UserProfile
 
     public void loadCompleteProfileFromResultSet( ResultSet rs ) throws SQLException
     {
-        this.userId = rs.getInt( "id" );
+        this.userId = rs.getLong( "id" );
         this.firebaseUid = rs.getString( "firebase_uid" );
         this.facebookId = rs.getString( "facebook_id" );
         this.displayName = rs.getString( "name" );
@@ -182,6 +193,7 @@ public class UserProfile
         this.highSchoolId = rs.getInt( "high_school_id" );
         this.universityId = rs.getInt( "university_id" );
         this.workPLaceId = rs.getInt( "work_place_id" );
+        this.timeZone = rs.getString( "time_zone" );
     }
 
 }

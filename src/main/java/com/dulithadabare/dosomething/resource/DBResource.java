@@ -1,17 +1,21 @@
 package com.dulithadabare.dosomething.resource;
 
+import com.dulithadabare.dosomething.constant.AppNotificationType;
 import com.dulithadabare.dosomething.constant.PrivacyPreference;
 import com.dulithadabare.dosomething.facebook.PublicProfile;
 import com.dulithadabare.dosomething.model.*;
 import com.dulithadabare.dosomething.util.AppException;
 import com.dulithadabare.dosomething.util.LocationHelper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpEntity;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.sql.*;
 import java.sql.Date;
-import java.time.LocalTime;
+import java.time.*;
+import java.time.zone.ZoneRulesException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -45,7 +49,26 @@ public class DBResource
             " ce.created_time " +
             "FROM confirmed_event ce ";
 
-    class ActiveEvent
+    private final String COMPLETE_USER_PROFILE_SELECT = "SELECT " +
+            "u.id, " +
+            "u.facebook_id, " +
+            "u.firebase_uid, " +
+            "u.name, " +
+            "u.email, " +
+            "u.latitude, " +
+            "u.longitude, " +
+            "u.high_school_id, " +
+            "u.university_id, " +
+            "u.work_place_id, " +
+            "u.time_zone " +
+            "FROM user_profile u ";
+
+    private final String PARTIAL_USER_PROFILE_SELECT = "SELECT " +
+            "u.id, " +
+            "u.name " +
+            "FROM user_profile u ";
+
+    static class ActiveEvent
     {
         private long eventId;
         private List<CurrentActivity> currentActivityList;
@@ -83,16 +106,16 @@ public class DBResource
         return DriverManager.getConnection(dbUrl);
     }
 
-    public HttpEntity<BasicResponse> createAnonymousUser( UserProfile userProfile )
+    public HttpEntity<BasicResponse> createAnonymousUser( UserProfile userProfile, String timeZone )
     {
-        int newUserId = 0;
+        long newUserId = 0L;
         UserProfile newUser;
 
         try ( Connection conn = getConnection() )
         {
             // Create User
 
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO user_profile ( firebase_uid ) VALUES ( ? ) RETURNING id" ) )
+            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO user_profile ( firebase_uid, time_zone ) VALUES ( ?, ? ) RETURNING id" ) )
             {
 
                 ps.setFetchSize( 1000 );
@@ -100,6 +123,7 @@ public class DBResource
                 int count = 1;
 
                 ps.setString( count++, userProfile.getFirebaseUid() );
+                ps.setString( count++, timeZone );
 
                 //execute query
                 try ( ResultSet rs = ps.executeQuery() )
@@ -109,7 +133,7 @@ public class DBResource
                     while ( rs.next() )
                     {
                         int col = 1;
-                        int id = rs.getInt( col++ );
+                        long id = rs.getLong( col++ );
 
                         newUserId = id;
                     }
@@ -144,123 +168,152 @@ public class DBResource
 
     public HttpEntity<BasicResponse> linkWithFacebook( String facebookUserToken, UserProfile userProfile )
     {
+        long userId = -1L;
         UserProfile updatedProfile;
 
         try ( Connection conn = getConnection() )
         {
-            // update user_profile details from facebook
-
-            PublicProfile publicProfile = facebookResource.getPublicProfile( userProfile.getFacebookId(), facebookUserToken );
+            conn.setAutoCommit(false);
+            try
+            {
+                // update user_profile details from facebook
+                PublicProfile publicProfile = facebookResource.getPublicProfile( userProfile.getFacebookId(), facebookUserToken );
 //            PictureResponse pictureResponse = facebookResource.getProfilePicture( userProfile.getFacebookId(), facebookUserToken );
 
-            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE user_profile SET facebook_id = ?, name = ?, email = ? WHERE id = ?" ) )
-            {
+                String createSql = "INSERT INTO user_profile (" +
+                        " firebase_uid," +
+                        " facebook_id," +
+                        " name ," +
+                        " email" +
+                        " ) VALUES ( ?, ?, ?, ? ) " +
+                        "ON CONFLICT (firebase_uid) DO UPDATE SET facebook_id = ?, name = ?, email = ? RETURNING id";
 
-                ps.setFetchSize( 1000 );
+                try ( PreparedStatement ps = conn.prepareStatement( createSql ) )
+                {
+                    ps.setFetchSize( 1000 );
 
-                int count = 1;
+                    int count = 1;
 
-                ps.setString( count++, publicProfile.getId() );
-                ps.setString( count++, publicProfile.getName() );
-                ps.setString( count++, publicProfile.getEmail() );
-                ps.setLong( count++, userProfile.getUserId() );
+                    ps.setString( count++, userProfile.getFirebaseUid() );
+                    ps.setString( count++, publicProfile.getId() );
+                    ps.setString( count++, publicProfile.getName() );
+                    ps.setString( count++, publicProfile.getEmail() );
 
-                //execute query
-                ps.executeUpdate();
+                    ps.setString( count++, publicProfile.getId() );
+                    ps.setString( count++, publicProfile.getName() );
+                    ps.setString( count++, publicProfile.getEmail() );
 
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-            }
+                    //execute query
+                    try ( ResultSet rs = ps.executeQuery() )
+                    {
+                        //position result to first
 
-            // Get User Friends from Facebook
+                        while ( rs.next() )
+                        {
+                            int col = 1;
+                            long id = rs.getLong( col++ );
 
-            Map<String, String> facebookFriendList = facebookResource.getFacebookFriends( userProfile.getFacebookId(), facebookUserToken );
+                            userId = id;
+                        }
 
-            // Get friend user ids using the friend facebook ID
+                    }
+                }
 
-            Map<String, Integer> facebookIdUserIdMap = new HashMap<>();
+                // Get User Friends from Facebook
+                Map<String, String> facebookFriendList = facebookResource.getFacebookFriends( userProfile.getFacebookId(), facebookUserToken );
 
-            StringBuilder friendSQLSb = new StringBuilder( "SELECT u.id, u.facebook_id FROM user_profile u WHERE  u.facebook_id IN (" );
+                // Get friend user ids using the friend facebook ID
+                Map<String, Integer> facebookIdUserIdMap = new HashMap<>();
 
-            String delim = " ";
+                StringBuilder friendSQLSb = new StringBuilder( "SELECT u.id, u.facebook_id FROM user_profile u WHERE  u.facebook_id IN (" );
 
-            for ( String facebookId : facebookFriendList.keySet() )
-            {
-                friendSQLSb.append( delim );
-                friendSQLSb.append( "?" );
-                delim = ", ";
-            }
-
-            friendSQLSb.append( ")" );
-
-            try ( PreparedStatement ps = conn.prepareStatement( friendSQLSb.toString() ) )
-            {
-
-                ps.setFetchSize( 1000 );
-
-                int count = 1;
+                String delim = " ";
 
                 for ( String facebookId : facebookFriendList.keySet() )
                 {
-                    ps.setString( count++, facebookId );
+                    friendSQLSb.append( delim );
+                    friendSQLSb.append( "?" );
+                    delim = ", ";
                 }
 
-                //execute query
-                try ( ResultSet rs = ps.executeQuery() )
-                {
-                    //position result to first
+                friendSQLSb.append( ")" );
 
-                    while ( rs.next() )
-                    {
-                        int col = 1;
-                        int id = rs.getInt( col++ );
-                        String facebookId = rs.getString( col++ );
-
-                        facebookIdUserIdMap.put( facebookId, id );
-                    }
-
-                }
-            }
-
-            if( !facebookIdUserIdMap.isEmpty() )
-            {
-                // Create Friends list
-                StringBuilder updateSqlSb = new StringBuilder( "INSERT INTO friend VALUES " );
-
-                String delimiter = " ";
-
-                for ( String facebookId : facebookIdUserIdMap.keySet() )
-                {
-                    updateSqlSb.append( delimiter );
-                    updateSqlSb.append( "(?, ?), (?, ?)" );
-                    delimiter = ", ";
-                }
-
-                try ( PreparedStatement ps = conn.prepareStatement( updateSqlSb.toString() ) )
+                try ( PreparedStatement ps = conn.prepareStatement( friendSQLSb.toString() ) )
                 {
 
                     ps.setFetchSize( 1000 );
 
                     int count = 1;
 
-                    for ( String facebookId : facebookIdUserIdMap.keySet() )
+                    for ( String facebookId : facebookFriendList.keySet() )
                     {
-                        ps.setInt( count++, userProfile.getUserId() );
-                        ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
-                        ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
-                        ps.setInt( count++, userProfile.getUserId() );
+                        ps.setString( count++, facebookId );
                     }
 
                     //execute query
-                    ps.executeUpdate();
+                    try ( ResultSet rs = ps.executeQuery() )
+                    {
+                        //position result to first
 
+                        while ( rs.next() )
+                        {
+                            int col = 1;
+                            int id = rs.getInt( col++ );
+                            String facebookId = rs.getString( col++ );
+
+                            facebookIdUserIdMap.put( facebookId, id );
+                        }
+
+                    }
+                }
+
+                if( !facebookIdUserIdMap.isEmpty() )
+                {
+                    // Create Friends list
+                    StringBuilder updateSqlSb = new StringBuilder( "INSERT INTO friend VALUES " );
+
+                    String delimiter = " ";
+
+                    for ( String facebookId : facebookIdUserIdMap.keySet() )
+                    {
+                        updateSqlSb.append( delimiter );
+                        updateSqlSb.append( "(?, ?), (?, ?)" );
+                        delimiter = ", ";
+                    }
+
+                    updateSqlSb.append( " ON CONFLICT DO NOTHING" );
+
+                    try ( PreparedStatement ps = conn.prepareStatement( updateSqlSb.toString() ) )
+                    {
+
+                        ps.setFetchSize( 1000 );
+
+                        int count = 1;
+
+                        for ( String facebookId : facebookIdUserIdMap.keySet() )
+                        {
+                            ps.setLong( count++, userId );
+                            ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
+                            ps.setInt( count++, facebookIdUserIdMap.get( facebookId ) );
+                            ps.setLong( count++, userId );
+                        }
+
+                        //execute query
+                        ps.executeUpdate();
+                    }
                 }
             }
+            catch(SQLException e)
+            {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                throw e;
+            }
 
-            updatedProfile = getCompleteUserProfileById( userProfile.getUserId(), conn );
+            conn.commit();
+            conn.setAutoCommit(true);
+
+            updatedProfile = getCompleteUserProfileById( userId, conn );
         }
         catch ( SQLException | URISyntaxException | InterruptedException | IOException | AppException e )
         {
@@ -270,7 +323,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedProfile ) );
     }
 
-    public HttpEntity<BasicResponse> getPopularNearbyFeed( PopularFeedRequest popularFeedRequest, int userId )
+    public HttpEntity<BasicResponse> getPopularNearbyFeed( PopularFeedRequest popularFeedRequest, Long userId )
     {
         List<PopularNearbyFeedItem> popularNearbyFeedItemList;
 
@@ -280,7 +333,7 @@ public class DBResource
             // updateFriendList();
 
             // Get Friend User Profiles from DB
-            List<Integer> friendIdList = getFriendIdList( userId, conn );
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
 
             // Get active  events by friends
             Map<Long, List<CurrentActivity>> activeEventMap = loadPopularActivityList( popularFeedRequest, conn );
@@ -322,8 +375,10 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( popularNearbyFeedItemList ) );
     }
 
-    public HttpEntity<BasicResponse> getHappeningFeed( int userId )
+    public HttpEntity<BasicResponse> getHappeningFeed( Long userId, String pageKey )
     {
+        DataListPage<HappeningFeedItem> dataListPage = new DataListPage<>();
+
         List<ActiveFeedItem> activeFeedItemList = new ArrayList<>();
 
         try ( Connection conn = getConnection() )
@@ -331,7 +386,7 @@ public class DBResource
 //            updateFriendList();
 
             // Get Friend User Profiles from DB
-            List<Integer> friendIdList = getFriendIdList( userId, conn );
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
 
             // None of the user_profile's facebook friends are using the DoSomething app
             if ( friendIdList.isEmpty() )
@@ -339,62 +394,43 @@ public class DBResource
                 return new HttpEntity<>( new BasicResponse( "No friends using DoSomething", BasicResponse.STATUS_ERROR ) );
             }
 
-            // Get active  events by friends
+            Long pageId = null;
+            OffsetDateTime pageTimestampUtc = null;
 
-            Map<Long, List<CurrentActivity>> activeFriendMap = loadCurrentActivityByFriendList( new ArrayList<>( friendIdList ), userId, conn );
-
-            // Get list of confirmed events
-
-            Set<Long> eventIdSet = activeFriendMap.keySet();
-
-            //load event list
-
-            List<EventResponse> eventResponseList = new ArrayList<>();
-
-            //TODO PERFORMANCE load all events at once
-            for ( Long eventId : eventIdSet )
+            if( pageKey != null && !pageKey.isEmpty() )
             {
-                eventResponseList.add( loadConfirmedEventById( eventId, userId, conn ) );
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageTimestampUtc = OffsetDateTime.parse( list[1] );
             }
 
-            Map<String, List<HappeningFeedItem>> tagMap = new HashMap<>();
+            // Get active  events by friends
+            List<HappeningFeedItem> feedItemList = loadHappeningFeedItemList( friendIdList, userId, pageId, pageTimestampUtc, 21, conn );
 
-            for ( EventResponse eventResponse : eventResponseList )
+            if( feedItemList.size() <= 20 )
             {
-                ConfirmedEvent event = eventResponse.getConfirmedEvent();
-
-                Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( event.getId(), conn );
-
-                List<CurrentActivity> activeUserList = activeFriendMap.get( event.getId() );
-                List<CurrentActivity> friendActivityList = activeUserList.stream().filter( e -> friendIdList.contains( e.getUserId() ) ).collect( Collectors.toList());
-                // Sort by updated time ASC ( First updated time will be the first in the list)
-                activeUserList.sort( Comparator.comparingLong( CurrentActivity::getUpdatedTime ) );
-                long firstActiveTimestamp = activeUserList.get( 0 ).getUpdatedTime();
-
-                HappeningFeedItem happeningFeedItem = new HappeningFeedItem();
-                happeningFeedItem.setConfirmedEvent( event );
-                happeningFeedItem.setActiveCount( friendActivityList.size() );
-                happeningFeedItem.setInvited( eventResponse.isInvited() );
-                happeningFeedItem.setParticipant( eventResponse.isParticipant() );
-                happeningFeedItem.setCreatorFriend( friendIdList.contains( event.getCreatorId() ) );
-                happeningFeedItem.setJoinRequested( eventJoinRequestMap.containsKey( userId ) );
-                happeningFeedItem.setFirstActiveTimestamp( firstActiveTimestamp );
-
-                activeFeedItemList.add( happeningFeedItem );
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                HappeningFeedItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getEvent().getId() + "/" + lastItem.getStartTime();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
             }
         }
         catch ( SQLException | URISyntaxException e )
         {
+            e.printStackTrace();
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
-        // Sort active feed items by active friend count DESC.
-        activeFeedItemList.sort( (o1, o2) -> Long.compare( o2.getActiveCount(), o1.getActiveCount() ) );
 
-        return new HttpEntity<>( new BasicResponse( activeFeedItemList ) );
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
     }
 
-    public HttpEntity<BasicResponse> getUpcomingFeed( int userId )
+    public HttpEntity<BasicResponse> getUpcomingFeed( Long userId, String pageKey )
     {
+        DataListPage<UpcomingFeedItem> dataListPage = new DataListPage<>();
         List<UpcomingFeedItem> feedItemList = new ArrayList<>();
 
         try ( Connection conn = getConnection() )
@@ -402,7 +438,7 @@ public class DBResource
 //            updateFriendList();
 
             // Get Friend User Profiles from DB
-            List<Integer> friendIdList = getFriendIdList( userId, conn );
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
 
             // None of the user_profile's facebook friends are using the DoSomething app
             if ( friendIdList.isEmpty() )
@@ -410,75 +446,101 @@ public class DBResource
                 return new HttpEntity<>( new BasicResponse( "No friends using DoSomething", BasicResponse.STATUS_ERROR ) );
             }
 
-            // Get confirmed events by friends
+            Long pageId = null;
+            OffsetDateTime pageTimestampUtc = null;
 
-            List<UpcomingFeedItem> eventList = loadUpcomingEvents( friendIdList, userId, conn );
-            List<UpcomingFeedItem> confirmedEventList = loadUpcomingConfirmedEvents( friendIdList, userId, conn );
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageTimestampUtc = OffsetDateTime.parse( list[1] );
+            }
 
             // Get events by friends
+            feedItemList.addAll( loadUpcomingEvents( friendIdList, userId, pageId, pageTimestampUtc, 21, conn ) );
 
-            feedItemList.addAll( eventList );
-            feedItemList.addAll( confirmedEventList );
-
-            // Sort by latest timestamp
-            feedItemList.sort( ( o1, o2 ) -> {
-                Event firstEvent = o1.getEvent() != null ? o1.getEvent() : o1.getConfirmedEvent();
-                Event secondEvent = o2.getEvent() != null ? o2.getEvent() : o2.getConfirmedEvent();
-
-                return Long.compare( secondEvent.getCreatedTime(), firstEvent.getCreatedTime() );
-            } );
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                UpcomingFeedItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getEvent().getId() + "/" + lastItem.getFirstInterestedTime();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
+            }
         }
         catch ( SQLException | URISyntaxException e )
         {
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
-        return new HttpEntity<>( new BasicResponse( feedItemList ) );
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
     }
 
-    public HttpEntity<BasicResponse> startCurrentActivity( CurrentActivity activity, int userId )
+    public HttpEntity<BasicResponse> startCurrentActivity( CurrentActivity activity, Long userId )
     {
         CurrentActivity currentActivity = null;
 
         try ( Connection conn = getConnection() )
         {
-            // Start activity in the event
-
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO current_activity (" +
-                    " user_id," +
-                    " event_id ," +
-                    " updated_time" +
-                    " ) VALUES ( ?, ?, ?) " +
-                    "ON CONFLICT (user_id) DO UPDATE SET event_id = ?, updated_time = ?" ) )
+            conn.setAutoCommit(false);
+            try
             {
-                ps.setFetchSize( 1000 );
+                // Start activity in the event
+                try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO current_activity (" +
+                        " user_id," +
+                        " event_id" +
+                        " ) VALUES ( ?, ? ) " +
+                        "ON CONFLICT (user_id) DO UPDATE SET event_id = ?, updated_time = NOW()" ) )
+                {
+                    ps.setFetchSize( 1000 );
 
-                int count = 1;
+                    int count = 1;
 
-                ps.setInt( count++, userId );
-                ps.setLong( count++, activity.getEventId() );
-                ps.setTimestamp( count++, new Timestamp( activity.getUpdatedTime() ) );
+                    ps.setLong( count++, userId );
+                    ps.setLong( count++, activity.getEventId() );
 
-                //on duplicate key update params
+                    //on duplicate key update params
 
-                ps.setLong( count++, activity.getEventId() );
-                ps.setTimestamp( count++, new Timestamp( activity.getUpdatedTime() ) );
+                    ps.setLong( count++, activity.getEventId() );
 
-                //execute query
-                ps.executeUpdate();
+                    //execute query
+                    ps.executeUpdate();
+                }
+                catch ( SQLException e )
+                {
+                    e.printStackTrace();
+                    return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+                }
+                //get current activity
+                currentActivity = getCurrentActivityByUserId( userId, conn );
+
+                // update user_profile activity history
+                updateUserActivityHistory( currentActivity, conn );
+
+                // TODO Check if this can send multiple notifications if two users start the event at the same time
+                int activeCount = getEventActiveCount( activity.getEventId(), conn );
+
+                if( activeCount == 1 )
+                {
+                    // Event was started by the user
+                    updateConfirmedEventHappeningStatus(activity.getEventId(), true, conn);
+
+                    //Add notification to participants
+                    Map<Long, EventInvited> eventInvitedMap = getEventInvited( activity.getEventId(), conn );
+                    List<Long> participantList = eventInvitedMap.values().stream().filter( EventInvited::isConfirmed ).map( EventInvited::getUserId ).collect( Collectors.toList());
+                    addEventStartNotification( activity.getEventId(), participantList, conn );
+                }
             }
-            catch ( SQLException e )
+            catch(SQLException e)
             {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+                conn.rollback();
+                conn.setAutoCommit(true);
+                throw e;
             }
-            //get current activity
-            currentActivity = getCurrentActivityByUserId( userId, conn );
-
-            // update user_profile activity history
-            updateUserActivityHistory( currentActivity, conn );
-
-            // Update confirmed event status
-            updateConfirmedEventHappeningStatus(activity.getEventId(), conn);
+            conn.commit();
+            conn.setAutoCommit(true);
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -488,34 +550,44 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( currentActivity ) );
     }
 
-    public HttpEntity<BasicResponse> stopCurrentActivity( CurrentActivity currentActivity, int userId )
+    public HttpEntity<BasicResponse> stopCurrentActivity( CurrentActivity currentActivity, Long userId )
     {
         try ( Connection conn = getConnection() )
         {
-            // Remove event interested user_profile
-
-            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE current_activity SET event_id = NULL, updated_time = ? WHERE user_id = ?" ) )
+            conn.setAutoCommit(false);
+            try
             {
+                // Remove event interested user_profile
+                try ( PreparedStatement ps = conn.prepareStatement( "UPDATE current_activity SET event_id = NULL, updated_time = NOW() WHERE user_id = ?" ) )
+                {
 
-                ps.setFetchSize( 1000 );
+                    ps.setFetchSize( 1000 );
 
-                int count = 1;
+                    int count = 1;
 
-                ps.setTimestamp( count++, new Timestamp( currentActivity.getUpdatedTime() ) );
-                ps.setInt( count++, userId );
+                    ps.setLong( count++, userId );
 
-                //execute query
-                ps.executeUpdate();
+                    //execute query
+                    ps.executeUpdate();
 
+                }
+
+                int activeCount = getEventActiveCount( currentActivity.getEventId(), conn );
+
+                if( activeCount == 1 )
+                {
+                    // Event was stopped
+                    updateConfirmedEventHappeningStatus( currentActivity.getEventId(), false, conn);
+                }
             }
-            catch ( SQLException e )
+            catch(SQLException ex)
             {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+                conn.rollback();
+                conn.setAutoCommit(true);
+                throw ex;
             }
-
-            // Update confirmed event status
-            updateConfirmedEventHappeningStatus( currentActivity.getEventId(), conn);
+            conn.commit();
+            conn.setAutoCommit(true);
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -526,13 +598,30 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( userId ) );
     }
 
-    // TODO Check if this Read and Update operation can cause errors such as incorrectly marking the event is not
-    //  happening due to transaction isolation?
-    public void updateConfirmedEventHappeningStatus( long confirmedEventId, Connection conn )
+    public void updateConfirmedEventHappeningStatus( long confirmedEventId, boolean isHappening, Connection conn ) throws SQLException
+    {
+        try ( PreparedStatement ps = conn.prepareStatement( "UPDATE confirmed_event SET is_happening = ? WHERE id = ?" ) )
+        {
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setBoolean( count++, isHappening );
+            ps.setLong( count++, confirmedEventId );
+
+            //execute query
+            ps.executeUpdate();
+
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
+    }
+
+    private int getEventActiveCount( long confirmedEventId, Connection conn ) throws SQLException
     {
         int activeCount = 0;
-
-        // get current active count for event
 
         try ( PreparedStatement ps = conn.prepareStatement( "SELECT COUNT(*) FROM current_activity ca WHERE ca.event_id = ?" ) )
         {
@@ -553,40 +642,8 @@ public class DBResource
                     activeCount = rs.getInt( col++ );
                 }
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
         }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
-        boolean isHappening = false;
-
-        if( activeCount > 0 )
-        {
-            isHappening = true;
-        }
-
-        try ( PreparedStatement ps = conn.prepareStatement( "UPDATE confirmed_event SET is_happening = ? WHERE id = ?" ) )
-        {
-            ps.setFetchSize( 1000 );
-
-            int count = 1;
-
-            ps.setBoolean( count++, isHappening );
-            ps.setLong( count++, confirmedEventId );
-
-            //execute query
-            ps.executeUpdate();
-
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
+        return activeCount;
     }
 
     public void updateUserActivityHistory( CurrentActivity activity, Connection conn )
@@ -599,8 +656,8 @@ public class DBResource
                 " user_id," +
                 " event_id ," +
                 " updated_time" +
-                " ) VALUES ( ?, ?, ?) " +
-                "ON CONFLICT (user_id, event_id) DO UPDATE SET updated_time = ?";
+                " ) VALUES ( ?, ?, NOW() ) " +
+                "ON CONFLICT (user_id, event_id) DO UPDATE SET updated_time = NOW()";
 
         try ( PreparedStatement ps = conn.prepareStatement( sql ) )
         {
@@ -608,13 +665,8 @@ public class DBResource
 
             int count = 1;
 
-            ps.setInt( count++, activity.getUserId() );
+            ps.setLong( count++, activity.getUserId() );
             ps.setLong( count++, activity.getEventId() );
-            ps.setTimestamp( count++, new Timestamp( activity.getUpdatedTime() ) );
-
-            //on duplicate key update params
-
-            ps.setTimestamp( count++, new Timestamp( activity.getUpdatedTime() ) );
 
             //execute query
             ps.executeUpdate();
@@ -627,7 +679,7 @@ public class DBResource
 
     }
 
-    public HttpEntity<BasicResponse> getCurrentActivityByUserId( int userId )
+    public HttpEntity<BasicResponse> getCurrentActivityByUserId( Long userId )
     {
         CurrentActivity currentActivity;
 
@@ -644,7 +696,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( currentActivity ) );
     }
 
-    public CurrentActivity getCurrentActivityByUserId( int userId, Connection conn )
+    public CurrentActivity getCurrentActivityByUserId( Long userId, Connection conn ) throws SQLException
     {
         CurrentActivity currentActivity = null;
 
@@ -662,7 +714,7 @@ public class DBResource
 
             int count = 1;
 
-            ps.setInt( count++, userId );
+            ps.setLong( count++, userId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -676,26 +728,78 @@ public class DBResource
                 }
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
+
         }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
+
 
 
         return currentActivity;
     }
 
-    public Map<Integer, List<CurrentActivity>> getRecentUserActivityHistory( List<Integer> userIdList, Connection conn ) throws SQLException
+    public Map<Long, CurrentActivity> getCurrentActivityByUserIdList( Set<Long> userIdList, Connection conn ) throws SQLException
     {
-        Map<Integer, List<CurrentActivity>> activityMap = new HashMap<>();
+        Map<Long, CurrentActivity> currentActivityMap = new HashMap<>();
+
+        if ( userIdList.isEmpty() )
+        {
+            return currentActivityMap;
+        }
+
+        StringBuilder sqlSb = new StringBuilder("SELECT " +
+                "ca.user_id, " +
+                "ca.event_id, " +
+                "ca.updated_time " +
+                "FROM current_activity ca " +
+                "WHERE ca.user_id IN ( ");
+
+        String delim = " ";
+
+        for ( Long userId : userIdList )
+        {
+            sqlSb.append( delim );
+            sqlSb.append( "?" );
+            delim = ", ";
+        }
+
+        sqlSb.append( " )" );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            for ( Long userId : userIdList )
+            {
+                ps.setLong( count++, userId );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    CurrentActivity currentActivity = new CurrentActivity();
+                    currentActivity.load( rs );
+
+                    currentActivityMap.put( currentActivity.getUserId(), currentActivity );
+                }
+
+            }
+        }
+
+        return currentActivityMap;
+    }
+
+    public Map<Long, List<CurrentActivity>> getRecentUserActivityHistory( Set<Long> userIdList, Connection conn ) throws SQLException
+    {
+        Map<Long, List<CurrentActivity>> activityMap = new HashMap<>();
 
         // init map
-        for ( Integer userId : userIdList )
+        for ( Long userId : userIdList )
         {
             activityMap.put( userId, new ArrayList<>() );
         }
@@ -714,7 +818,7 @@ public class DBResource
 
         String delim = "";
 
-        for ( Integer userId : userIdList )
+        for ( Long userId : userIdList )
         {
             sqlSb.append( delim );
             sqlSb.append( "?" );
@@ -722,7 +826,8 @@ public class DBResource
         }
 
         sqlSb.append( " ) " );
-        sqlSb.append( "AND uah.updated_time >= ( NOW() - INTERVAL '7 DAY' )" );
+        sqlSb.append( "AND uah.updated_time >= ( NOW() - INTERVAL '7 DAY' ) " );
+        sqlSb.append( "ORDER BY uah.updated_time DESC" );
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
         {
@@ -731,9 +836,9 @@ public class DBResource
 
             int count = 1;
 
-            for ( Integer userId : userIdList )
+            for ( Long userId : userIdList )
             {
-                ps.setInt( count++, userId );
+                ps.setLong( count++, userId );
             }
 
             //execute query
@@ -762,7 +867,7 @@ public class DBResource
         return activityMap;
     }
 
-    public List<CurrentActivity> getRecentUserActivityHistoryById( int userId, Connection conn ) throws SQLException
+    public List<CurrentActivity> getRecentUserActivityHistoryById( Long userId, Connection conn ) throws SQLException
     {
         List<CurrentActivity> currentActivityList = new ArrayList<>();
 
@@ -781,7 +886,7 @@ public class DBResource
 
             int count = 1;
 
-            ps.setInt( count++, userId );
+            ps.setLong( count++, userId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -802,7 +907,7 @@ public class DBResource
         return currentActivityList;
     }
 
-    public HttpEntity<BasicResponse> createEvent( Event event, int userId )
+    public HttpEntity<BasicResponse> createEvent( Event event, Long userId )
     {
         long eventId = -1;
         EventResponse createdEvent = null;
@@ -817,18 +922,16 @@ public class DBResource
                 try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event (" +
                         " creator_id ," +
                         " description," +
-                        " visibility_preference," +
-                        " created_time" +
-                        " ) VALUES ( ?, ?, ?, ? ) RETURNING id" ) )
+                        " visibility_preference" +
+                        " ) VALUES ( ?, ?, ? ) RETURNING id" ) )
                 {
                     ps.setFetchSize( 1000 );
 
                     int count = 1;
 
-                    ps.setInt( count++, userId );
+                    ps.setLong( count++, userId );
                     ps.setString( count++, event.getDescription() );
                     ps.setInt( count++, event.getVisibilityPreference() );
-                    ps.setTimestamp( count++, new Timestamp( event.getCreatedTime() ) );
 
                     try ( ResultSet rs = ps.executeQuery() )
                     {
@@ -884,10 +987,10 @@ public class DBResource
 
                 //Add event interest for creator
                 EventInterest eventInterest = new EventInterest( eventId, userId, "Creator" );
-                addEventInterest( eventId, userId, eventInterest, event.getCreatedTime(), conn );
+                addEventInterest( eventId, userId, eventInterest, conn );
 
                 // Load updated event
-                createdEvent = getEventById( eventId, userId, conn );
+                createdEvent = loadEventResponseById( eventId, userId, conn );
             }
             catch(SQLException e)
             {
@@ -949,7 +1052,7 @@ public class DBResource
         return tagList;
     }
 
-    public HttpEntity<BasicResponse> updateEvent( Event event, int userId )
+    public HttpEntity<BasicResponse> updateEvent( Event event, Long userId )
     {
         EventResponse updatedEvent = null;
 
@@ -978,7 +1081,7 @@ public class DBResource
                 e.printStackTrace();
             }
 
-            updatedEvent = getEventById( event.getId(), userId, conn );
+            updatedEvent = loadEventResponseById( event.getId(), userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -989,7 +1092,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> createConfirmedEvent( ConfirmedEvent confirmedEvent, int userId )
+    public HttpEntity<BasicResponse> createConfirmedEvent( ConfirmedEvent confirmedEvent, Long userId )
     {
         EventResponse createdEvent = null;
 
@@ -998,7 +1101,7 @@ public class DBResource
             conn.setAutoCommit(false);
             try
             {
-// Create confirmed event
+                // Create confirmed event
                 long confirmedEventId = -1L;
 
                 try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO confirmed_event (" +
@@ -1008,9 +1111,8 @@ public class DBResource
                         " date," +
                         " time," +
                         " is_public," +
-                        " visibility_preference," +
-                        " created_time" +
-                        " ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ? ) RETURNING id" ) )
+                        " visibility_preference" +
+                        " ) VALUES ( ?, ?, ?, ?, ?, ?, ? ) RETURNING id" ) )
                 {
                     Date date = confirmedEvent.getDate() != null && !confirmedEvent.getDate().isEmpty() ? Date.valueOf( confirmedEvent.getDate() ) : null;
 
@@ -1021,13 +1123,12 @@ public class DBResource
                     int count = 1;
 
                     ps.setLong( count++, confirmedEvent.getEventId() );
-                    ps.setInt( count++, userId );
+                    ps.setLong( count++, userId );
                     ps.setString( count++, confirmedEvent.getDescription() );
                     ps.setDate( count++, date );
                     ps.setTime( count++, time );
                     ps.setBoolean( count++, confirmedEvent.isPublic() );
                     ps.setInt( count++, confirmedEvent.getVisibilityPreference() );
-                    ps.setTimestamp( count++, new Timestamp( confirmedEvent.getCreatedTime() ) );
 
                     //execute query
                     try ( ResultSet rs = ps.executeQuery() )
@@ -1052,8 +1153,8 @@ public class DBResource
                 confirmEventParticipation( confirmedEventId, userId, conn );
 
                 //Add event invited users and send notifications to invited users
-                addEventInvitedUserByList( confirmedEventId, new ArrayList<>(confirmedEvent.getInvitedList()), conn );
-                addEventInviteNotificationByList( confirmedEventId, new ArrayList<>(confirmedEvent.getInvitedList()), userId, conn );
+                addEventInvitedUserByList( confirmedEventId, confirmedEvent.getInvitedList(), conn );
+                addEventInviteNotificationByList( confirmedEventId, confirmedEvent.getInvitedList(), userId, conn );
 
 
                 // Mark original event as confirmed
@@ -1073,7 +1174,7 @@ public class DBResource
                 }
 
                 //Load event
-                createdEvent = loadConfirmedEventById( confirmedEventId, userId, conn );
+                createdEvent = loadConfirmedEventResponseById( confirmedEventId, userId, conn );
             }
             catch(SQLException ex)
             {
@@ -1093,7 +1194,49 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( createdEvent ) );
     }
 
-    public HttpEntity<BasicResponse> updateConfirmedEvent( ConfirmedEvent confirmedEvent, int userId )
+    public HttpEntity<BasicResponse> addInvites( ConfirmedEvent confirmedEvent, Long userId )
+    {
+        EventResponse createdEvent;
+
+        try ( Connection conn = getConnection() )
+        {
+            conn.setAutoCommit(false);
+            try
+            {
+                Map<Long, EventInvited> oldEventInvitedMap = getEventInvited( confirmedEvent.getId(), conn );
+
+                Set<Long> removedInvitedList = oldEventInvitedMap.keySet().stream().filter( e -> !confirmedEvent.getInvitedList().contains( e ) && !e.equals( userId ) ).collect( Collectors.toSet());
+                Set<Long> newInvitedList = confirmedEvent.getInvitedList().stream().filter( e -> !oldEventInvitedMap.containsKey( e ) ).collect( Collectors.toSet());
+
+                // Add new invited users and send event notifications
+                addEventInvitedUserByList( confirmedEvent.getId(), newInvitedList, conn );
+                addEventInviteNotificationByList( confirmedEvent.getId(), newInvitedList, userId, conn );
+
+                // Delete removed invited users
+                removeEventInvitedUserByList( confirmedEvent.getId(), removedInvitedList, conn );
+
+                //Load event
+                createdEvent = loadConfirmedEventResponseById( confirmedEvent.getId(), userId, conn );
+            }
+            catch(SQLException ex)
+            {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                throw ex;
+            }
+            conn.commit();
+            conn.setAutoCommit(true);
+        }
+        catch ( SQLException | URISyntaxException | NullPointerException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( createdEvent ) );
+    }
+
+    public HttpEntity<BasicResponse> updateConfirmedEvent( ConfirmedEvent confirmedEvent, Long userId )
     {
         //TODO only creator with userId can update a confirmed event
         EventResponse updatedEvent;
@@ -1124,10 +1267,10 @@ public class DBResource
                     ps.executeUpdate();
                 }
 
-                Map<Integer, EventInvited> oldEventInvitedMap = getEventInvited( confirmedEvent.getId(), conn );
+                Map<Long, EventInvited> oldEventInvitedMap = getEventInvited( confirmedEvent.getId(), conn );
 
-                List<Integer> removedInvitedList = oldEventInvitedMap.keySet().stream().filter( e -> !confirmedEvent.getInvitedList().contains( e ) && e != userId ).collect( Collectors.toList());
-                List<Integer> newInvitedList = confirmedEvent.getInvitedList().stream().filter( e -> !oldEventInvitedMap.containsKey( e ) ).collect( Collectors.toList());
+                Set<Long> removedInvitedList = oldEventInvitedMap.keySet().stream().filter( e -> !confirmedEvent.getInvitedList().contains( e ) && !e.equals( userId ) ).collect( Collectors.toSet());
+                Set<Long> newInvitedList = confirmedEvent.getInvitedList().stream().filter( e -> !oldEventInvitedMap.containsKey( e ) ).collect( Collectors.toSet());
 
                 // Add new invited users and send event notifications
                 addEventInvitedUserByList( confirmedEvent.getId(), newInvitedList, conn );
@@ -1146,7 +1289,7 @@ public class DBResource
             conn.setAutoCommit(true);
 
             //Load updated event
-            updatedEvent = loadConfirmedEventById( confirmedEvent.getId(), userId, conn );
+            updatedEvent = loadConfirmedEventResponseById( confirmedEvent.getId(), userId.intValue(), conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -1156,7 +1299,7 @@ public class DBResource
 
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
-    public HttpEntity<BasicResponse> cancelConfirmedEvent( long confirmedEventId, int userId )
+    public HttpEntity<BasicResponse> cancelConfirmedEvent( long confirmedEventId, Long userId )
     {
         //TODO only creator with userId can cancel a confirmed event
         EventResponse updatedEvent;
@@ -1179,7 +1322,7 @@ public class DBResource
             }
 
             //Load updated event
-            updatedEvent = loadConfirmedEventById( confirmedEventId, userId, conn );
+            updatedEvent = loadConfirmedEventResponseById( confirmedEventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -1191,7 +1334,7 @@ public class DBResource
     }
 
 
-    private void addEventInvitedUser( long confirmedEventId, int invitedUserId, Connection conn ) throws SQLException
+    private void addEventInvitedUser( long confirmedEventId, Long invitedUserId, Connection conn ) throws SQLException
     {
         try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event_participant ( event_id, user_id ) VALUES ( ?, ? ) ON CONFLICT DO NOTHING" ) )
         {
@@ -1201,7 +1344,7 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, confirmedEventId );
-            ps.setInt( count++, invitedUserId );
+            ps.setLong( count++, invitedUserId );
 
             //execute query
             ps.executeUpdate();
@@ -1209,7 +1352,7 @@ public class DBResource
         }
     }
 
-    private void addEventInvitedUserByList( long confirmedEventId, List<Integer> invitedUserList, Connection conn ) throws SQLException
+    private void addEventInvitedUserByList( long confirmedEventId, Set<Long> invitedUserList, Connection conn ) throws SQLException
     {
         if ( !invitedUserList.isEmpty() )
         {
@@ -1217,7 +1360,7 @@ public class DBResource
 
             String delim = " ";
 
-            for ( Integer invitedUser :invitedUserList )
+            for ( Long invitedUser :invitedUserList )
             {
                 insertSqlSb.append( delim );
                 insertSqlSb.append( "( ?, ? )" );
@@ -1233,10 +1376,10 @@ public class DBResource
 
                 int count = 1;
 
-                for ( Integer invitedUser : invitedUserList )
+                for ( Long invitedUser : invitedUserList )
                 {
                     ps.setLong( count++, confirmedEventId );
-                    ps.setInt( count++, invitedUser );
+                    ps.setLong( count++, invitedUser );
                 }
 
                 //execute query
@@ -1246,18 +1389,18 @@ public class DBResource
         }
     }
 
-    private void addEventInviteNotificationByList( long confirmedEventId, List<Integer> invitedUserList, int eventCreatorId, Connection conn ) throws SQLException
+    private void addEventInviteNotificationByList( long confirmedEventId, Set<Long> invitedUserList, long eventCreatorId, Connection conn ) throws SQLException
     {
         if ( !invitedUserList.isEmpty() )
         {
-            StringBuilder updateSqlSb = new StringBuilder( "INSERT INTO event_invite ( event_id, sender_id, receiver_id ) VALUES " );
+            StringBuilder updateSqlSb = new StringBuilder( "INSERT INTO event_invite_notification ( event_id, user_id, friend_id ) VALUES " );
 
             String delimiter = " ";
 
-            for ( Integer invitee : invitedUserList )
+            for ( Long invitee : invitedUserList )
             {
                 updateSqlSb.append( delimiter );
-                updateSqlSb.append( "(?, ?, ?)" );
+                updateSqlSb.append( "( ?, ?, ? )" );
                 delimiter = ", ";
             }
 
@@ -1270,11 +1413,11 @@ public class DBResource
 
                 int count = 1;
 
-                for ( Integer invitee : invitedUserList )
+                for ( Long invitee : invitedUserList )
                 {
                     ps.setLong( count++, confirmedEventId );
-                    ps.setInt( count++, eventCreatorId );
-                    ps.setInt( count++, invitee );
+                    ps.setLong( count++, invitee );
+                    ps.setLong( count++, eventCreatorId );
                 }
 
                 //execute query
@@ -1284,7 +1427,7 @@ public class DBResource
         }
     }
 
-    public void removeEventInvitedUserByList( long eventId, List<Integer> removedInvitedUserList, Connection conn ) throws SQLException
+    public void removeEventInvitedUserByList( long eventId, Set<Long> removedInvitedUserList, Connection conn ) throws SQLException
     {
         if( !removedInvitedUserList.isEmpty() )
         {
@@ -1293,7 +1436,7 @@ public class DBResource
 
             String delim = "";
 
-            for ( Integer invitedUser : removedInvitedUserList )
+            for ( Long invitedUser : removedInvitedUserList )
             {
                 inviteSqlSb.append( delim );
                 inviteSqlSb.append( "?" );
@@ -1310,9 +1453,9 @@ public class DBResource
                 int count = 1;
 
                 ps.setLong( count++, eventId );
-                for ( Integer invitedUser : removedInvitedUserList )
+                for ( Long invitedUser : removedInvitedUserList )
                 {
-                    ps.setInt( count++, invitedUser );
+                    ps.setLong( count++, invitedUser );
                 }
 
                 //execute query
@@ -1325,7 +1468,7 @@ public class DBResource
 
             delim = "";
 
-            for ( Integer invitedUser : removedInvitedUserList )
+            for ( Long invitedUser : removedInvitedUserList )
             {
                 participantSqlSb.append( delim );
                 participantSqlSb.append( "?" );
@@ -1343,9 +1486,9 @@ public class DBResource
 
                 ps.setLong( count++, eventId );
 
-                for ( Integer invitedUser : removedInvitedUserList )
+                for ( Long invitedUser : removedInvitedUserList )
                 {
-                    ps.setInt( count++, invitedUser );
+                    ps.setLong( count++, invitedUser );
                 }
 
                 //execute query
@@ -1355,13 +1498,13 @@ public class DBResource
         }
     }
 
-    public HttpEntity<BasicResponse> getConfirmedEventById( long eventId, int userId )
+    public HttpEntity<BasicResponse> getConfirmedEventById( long eventId, Long userId )
     {
         EventResponse confirmedEvent = null;
 
         try ( Connection conn = getConnection() )
         {
-            confirmedEvent = loadConfirmedEventById( eventId, userId, conn );
+            confirmedEvent = loadConfirmedEventResponseById( eventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -1373,7 +1516,7 @@ public class DBResource
     }
 
 
-    public EventResponse loadConfirmedEventById( long confirmedEventId, int userId, Connection conn )
+    public EventResponse loadConfirmedEventResponseById( long confirmedEventId, long userId, Connection conn ) throws SQLException
     {
         EventResponse eventResponse = null;
 
@@ -1400,8 +1543,8 @@ public class DBResource
 
                     boolean isPublic = rs.getBoolean( "is_public" );
 
-                    Map<Integer, EventInvited> invitedMap = getEventInvited( confirmedEventId, conn );
-                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( confirmedEventId, conn );
+                    Map<Long, EventInvited> invitedMap = getEventInvited( confirmedEventId, conn );
+                    Map<Long, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( confirmedEventId, conn );
 
                     boolean isInvited = invitedMap.containsKey( userId );
                     boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
@@ -1446,14 +1589,7 @@ public class DBResource
                 }
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
+         
         }
 
         return eventResponse;
@@ -1472,34 +1608,35 @@ public class DBResource
 
                 if ( friendList == null || friendList.contains( userId ) )
                 {
-                    UserProfile participantUser = participant.getUser();
+                    BasicProfile participantUser = participant.getUser();
                     participantUser.setDisplayName( null );
                 }
 
                 if ( participantId == userId )
                 {
-                    UserProfile participantUser = participant.getUser();
+                    BasicProfile participantUser = participant.getUser();
                     participantUser.setDisplayName( "You" );
                 }
             }
         }
     }
 
-    public HttpEntity<BasicResponse> getInvitedUserList( long eventId, int userId )
+    @Deprecated
+    public HttpEntity<BasicResponse> getInvitedUserList( long eventId, Long userId )
     {
         List<InvitedUser> invitedUserList = new ArrayList<>();
         try ( Connection conn = getConnection() )
         {
-            List<Integer> friendIdList = getFriendIdList( userId, conn );
-            Map<Integer, EventInvited> invitedMap = getEventInvited( eventId, conn );
-            Map<Integer, UserProfile> userProfileMap = getUserProfilesWithDetails( new ArrayList<>(invitedMap.keySet()), conn );
-            Map<Integer, List<Integer>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
+            Map<Long, EventInvited> invitedMap = getEventInvited( eventId, conn );
+            Map<Long, UserProfile> userProfileMap = getUserProfilesWithDetails( invitedMap.keySet(), conn );
+            Map<Long, List<Long>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
             List<Integer> requestedFriendList = getVisibilityRequestedByUser( eventId, userId, conn );
-            Map<Integer, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( new ArrayList<>(invitedMap.keySet()), conn );
+            Map<Long, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( invitedMap.keySet(), conn );
             UserProfile currUser = getCompleteUserProfileById( userId, conn );
             List<CurrentActivity> currUserRecentCurrentActivityHistory = getRecentUserActivityHistoryById( userId, conn );
 
-            for ( Integer invitedId : invitedMap.keySet() )
+            for ( Long invitedId : invitedMap.keySet() )
             {
                 EventInvited eventInvited = invitedMap.get( invitedId );
                 UserProfile userProfile = userProfileMap.get( invitedId );
@@ -1511,11 +1648,10 @@ public class DBResource
                 // Update invited user_profile visibility
                 if ( !eventInvited.isConfirmed() )
                 {
-                    // Get the list of users the invited user_profile is visible to
-                    List<Integer> visibleFriendList = visibilityMap.get( invitedId );
+                    List<Long> visibleToFriendList = visibilityMap.containsKey( invitedId ) ? visibilityMap.get( invitedId ) : new ArrayList<>();
+                    List<Long> visibleToCurrUserList = visibilityMap.containsKey( userId ) ? visibilityMap.get( userId ) : new ArrayList<>();
 
-                    //if participant is not visible to current user_profile
-                    if ( visibleFriendList == null || !visibleFriendList.contains( userId ) )
+                    if ( !visibleToCurrUserList.contains( invitedId )  )
                     {
                         userProfile.setDisplayName( null );
                     }
@@ -1556,7 +1692,7 @@ public class DBResource
                 }
 
                 InvitedUser invitedUser = new InvitedUser();
-                invitedUser.setUser( userProfile );
+//                invitedUser.setUser( userProfile );
                 invitedUser.setUserId( userProfile.getUserId() );
                 invitedUser.setConfirmed( eventInvited.isConfirmed() );
                 invitedUser.setFriend( isFriend );
@@ -1576,14 +1712,14 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( invitedUserList ) );
     }
 
-    public HttpEntity<BasicResponse> getActiveFriendListByEventId( long eventId, int userId )
+    public HttpEntity<BasicResponse> getActiveFriendListByEventId( long eventId, Long userId )
     {
-        List<ActiveUser> activeUserList = new ArrayList<>();
+        List<ActivePageItem> activePageItemList = new ArrayList<>();
         try ( Connection conn = getConnection() )
         {
-            List<Integer> friendIdList = getFriendIdList( userId, conn );
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
 
-            Map<Integer, CurrentActivity> currentActivityMap = new HashMap<>();
+            Map<Long, CurrentActivity> currentActivityMap = new HashMap<>();
 
             StringBuilder sqlSb = new StringBuilder( "SELECT " +
                     "ca.user_id, " +
@@ -1595,7 +1731,7 @@ public class DBResource
                     "AND ca.user_id IN ( ");
 
             String delim = " ";
-            for ( int friendId : friendIdList )
+            for ( Long friendId : friendIdList )
             {
                 sqlSb.append( delim );
                 sqlSb.append( "?" );
@@ -1612,9 +1748,9 @@ public class DBResource
 
                 ps.setLong( count++, eventId );
 
-                for ( int friendId : friendIdList )
+                for ( Long friendId : friendIdList )
                 {
-                    ps.setInt( count++, friendId );
+                    ps.setLong( count++, friendId );
                 }
 
                 //execute query
@@ -1642,15 +1778,15 @@ public class DBResource
                 e.printStackTrace();
             }
 
-            Map<Integer, UserProfile> userProfileMap = getUserProfilesWithDetails( new ArrayList<>(currentActivityMap.keySet()), conn );
+            Map<Long, BasicProfile> userProfileMap = getUserProfileByList( currentActivityMap.keySet(), conn );
 
             for ( CurrentActivity currentActivity : currentActivityMap.values() )
             {
-                ActiveUser activeUser = new ActiveUser();
-                activeUser.setUser( userProfileMap.get( currentActivity.getUserId() ) );
-                activeUser.setCreatedTime( currentActivity.getUpdatedTime() );
+                ActivePageItem activePageItem = new ActivePageItem();
+                activePageItem.setUser( userProfileMap.get( currentActivity.getUserId() ) );
+                activePageItem.setActiveTime( currentActivity.getUpdatedTime() );
 
-                activeUserList.add( activeUser );
+                activePageItemList.add( activePageItem );
             }
 
         }
@@ -1660,12 +1796,136 @@ public class DBResource
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( activeUserList ) );
+        return new HttpEntity<>( new BasicResponse( activePageItemList ) );
     }
 
-    public Map<Integer, EventInvited> getEventInvited( long eventId, Connection conn )
+    public HttpEntity<BasicResponse> getActivePage( long eventId, Long userId, String pageKey )
     {
-        Map<Integer, EventInvited> invitedMap = new HashMap<>();
+        DataListPage<ActivePageItem> dataListPage = new DataListPage<>();
+
+        try ( Connection conn = getConnection() )
+        {
+            Long pageId = null;
+            Boolean pageIsFriend = null;
+            Boolean pageIsActive = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageIsFriend = Boolean.parseBoolean( list[1] );
+                pageIsActive = Boolean.parseBoolean( list[2] );
+            }
+
+            List<ActivePageItem> feedItemList = loadActivePage( eventId, userId, pageId, pageIsFriend, pageIsActive, 21, conn );
+
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                ActivePageItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getUser().getUserId() + "/" + lastItem.isFriend() + "/" + lastItem.isActive();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
+            }
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
+    }
+
+    public List<ActivePageItem> loadActivePage( long eventId, long userId, Long pageId, Boolean pageIsFriend, Boolean pageIsActive, int limit, Connection conn ) throws SQLException
+    {
+        List<ActivePageItem> feedItemList = new ArrayList<>();
+        Map<Long, ActiveUser> participantMap = new LinkedHashMap<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT ei.user_id, " );
+        sqlSb.append( "( ei.user_id IN ( SELECT f.friend_id FROM friend f WHERE f.user_id = ? ) OR ei.user_id = ? ) is_friend, " );
+        sqlSb.append( "( ei.event_id IN ( SELECT ca.event_id FROM current_activity ca WHERE ca.user_id = ei.user_id ) ) is_active " );
+        sqlSb.append( "FROM event_participant ei " );
+        sqlSb.append( "WHERE ei.event_id = ? " );
+        sqlSb.append( "AND ei.is_confirmed = TRUE " );
+        if( pageId != null && pageIsFriend != null && pageIsActive != null )
+        {
+            sqlSb.append( "AND ( is_active, is_friend, ei.user_id ) < ( ?, ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY is_active DESC, is_friend DESC, ei.user_id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int pCount = 1;
+            ps.setLong( pCount++, userId );
+            ps.setLong( pCount++, userId );
+            ps.setLong( pCount++, eventId );
+
+            if( pageId != null && pageIsFriend != null && pageIsActive != null )
+            {
+                ps.setBoolean( pCount++, pageIsActive );
+                ps.setBoolean( pCount++, pageIsFriend );
+                ps.setLong( pCount++, pageId );
+            }
+
+            ps.setInt( pCount++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    Long participantId = rs.getLong( col++ );
+                    boolean isFriend = rs.getBoolean( col++ );
+                    boolean isActive = rs.getBoolean( col++ );
+
+                    ActiveUser activeUser = new ActiveUser();
+                    activeUser.setParticipantId( participantId );
+                    activeUser.setFriend( isFriend );
+                    activeUser.setActive( isActive );
+
+                    participantMap.put( participantId, activeUser );
+                }
+
+            }
+        }
+
+        // Get interested friend details
+        Map<Long, BasicProfile> userProfileMap = getUserProfileByList( participantMap.keySet(), conn );
+        Map<Long, CurrentActivity> userActivityMap = getCurrentActivityByUserIdList(participantMap.keySet(), conn);
+
+        for ( Long participantId : participantMap.keySet() )
+        {
+            ActiveUser activeUser = participantMap.get( participantId );
+            CurrentActivity currentActivity = userActivityMap.get( participantId );
+
+            OffsetDateTime activeTime = activeUser.isActive() ? currentActivity.getUpdatedTime() : null;
+
+            ActivePageItem activePageItem = new ActivePageItem();
+            activePageItem.setUser( userProfileMap.get( participantId ) );
+            activePageItem.setActive( activeUser.isActive() );
+            activePageItem.setActiveTime( activeTime );
+            activePageItem.setFriend( activeUser.isFriend() );
+
+            feedItemList.add( activePageItem );
+        }
+
+        return feedItemList;
+    }
+
+    public Map<Long, EventInvited> getEventInvited( long eventId, Connection conn )
+    {
+        Map<Long, EventInvited> invitedMap = new HashMap<>();
 
         String sqlSb = "SELECT " +
                 " user_id," +
@@ -1689,7 +1949,7 @@ public class DBResource
                 while ( rs.next() )
                 {
                     int col = 1;
-                    int invitedId = rs.getInt( col++ );
+                    Long invitedId = rs.getLong( col++ );
                     boolean isConfirmed = rs.getBoolean( col++ );
 
                     EventInvited eventInvited = new EventInvited();
@@ -1714,7 +1974,7 @@ public class DBResource
         return invitedMap;
     }
 
-    public  List<Integer> getVisibilityRequestedByUser( long eventId, int userId, Connection conn )
+    public  List<Integer> getVisibilityRequestedByUser( long eventId, Long userId, Connection conn )
     {
         List<Integer> visibilityRequestedIdList = new ArrayList<>();
 
@@ -1732,7 +1992,7 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, eventId );
-            ps.setInt( count++, userId );
+            ps.setLong( count++, userId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -1761,9 +2021,9 @@ public class DBResource
         return visibilityRequestedIdList;
     }
 
-    public Map<Integer, List<Integer>> getInterestedVisibilityMatrix( long eventId, Connection conn )
+    public Map<Long, List<Long>> getInterestedVisibilityMatrix( long eventId, Connection conn )
     {
-        Map<Integer, List<Integer>> visibilityMap = new HashMap<>();
+        Map<Long, List<Long>> visibilityMap = new HashMap<>();
 
         String sqlSb = "SELECT " +
                 " user_id," +
@@ -1788,13 +2048,13 @@ public class DBResource
                 while ( rs.next() )
                 {
                     int col = 1;
-                    int userId = rs.getInt( col++ );
-                    int friendId = rs.getInt( col++ );
+                    Long userId = rs.getLong( col++ );
+                    Long friendId = rs.getLong( col++ );
 
-                    List<Integer> visibleToFriendList = new ArrayList<>();
-                    visibleToFriendList.add( friendId );
+                    List<Long> visibleFriendList = new ArrayList<>();
+                    visibleFriendList.add( friendId );
 
-                    visibilityMap.merge( userId, visibleToFriendList, ( currList, newList ) -> {
+                    visibilityMap.merge( userId, visibleFriendList, ( currList, newList ) -> {
                         currList.addAll( newList );
                         return currList;
                     } );
@@ -1814,7 +2074,7 @@ public class DBResource
         return visibilityMap;
     }
 
-    public HttpEntity<BasicResponse> acceptEventInvite( long confirmedEventId, int userId )
+    public HttpEntity<BasicResponse> acceptEventInvite( long confirmedEventId, Long userId )
     {
         EventResponse updatedEvent = null;
 
@@ -1830,20 +2090,9 @@ public class DBResource
                 removeEventInvite( confirmedEventId, userId, conn );
 
                 // Add accept notification
-                try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO accept_notification ( event_id, user_id ) VALUES ( ?, ? ) ON CONFLICT DO NOTHING" ) )
-                {
-
-                    ps.setFetchSize( 1000 );
-
-                    int count = 1;
-
-                    ps.setLong( count++, confirmedEventId );
-                    ps.setInt( count++, userId );
-
-                    //execute query
-                    ps.executeUpdate();
-
-                }
+                updatedEvent = loadConfirmedEventResponseById( confirmedEventId, userId, conn );
+                Long senderId = updatedEvent.getConfirmedEvent().getCreatorId();
+                addEventInviteAcceptNotification( confirmedEventId, userId, senderId, conn );
             }
             catch(SQLException ex)
             {
@@ -1855,7 +2104,7 @@ public class DBResource
             conn.setAutoCommit(true);
 
             // Load updated event
-            updatedEvent = loadConfirmedEventById( confirmedEventId, userId, conn );
+            updatedEvent = loadConfirmedEventResponseById( confirmedEventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -1866,7 +2115,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> declineEventInvite( long eventId, int userId )
+    public HttpEntity<BasicResponse> declineEventInvite( long eventId, Long userId )
     {
         EventResponse updatedEvent = null;
 
@@ -1876,7 +2125,7 @@ public class DBResource
             removeEventInvite( eventId, userId, conn );
 
             // Load updated event
-            updatedEvent = loadConfirmedEventById( eventId, userId, conn );
+            updatedEvent = loadConfirmedEventResponseById( eventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -1887,7 +2136,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    private void removeEventInvite( long eventId, int userId, Connection conn ) throws SQLException
+    private void removeEventInvite( long eventId, Long userId, Connection conn ) throws SQLException
     {
         try ( PreparedStatement ps = conn.prepareStatement( "DELETE FROM event_invite WHERE event_id = ? AND receiver_id = ?" ) )
         {
@@ -1897,7 +2146,7 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, eventId );
-            ps.setInt( count++, userId );
+            ps.setLong( count++, userId );
 
             //execute query
             ps.executeUpdate();
@@ -1905,7 +2154,7 @@ public class DBResource
         }
     }
 
-    public void confirmEventParticipation( long eventId, int participantId, Connection conn ) throws SQLException
+    public void confirmEventParticipation( long eventId, Long participantId, Connection conn ) throws SQLException
     {
         // Add new interested user_profile to the event
         try ( PreparedStatement ps = conn.prepareStatement( "UPDATE event_participant SET is_confirmed = TRUE WHERE event_id = ? AND user_id = ?" ) )
@@ -1916,14 +2165,14 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, eventId );
-            ps.setInt( count++, participantId );
+            ps.setLong( count++, participantId );
 
             //execute query
             ps.executeUpdate();
         }
     }
 
-    public HttpEntity<BasicResponse> cancelEventParticipation( long eventId, int userId )
+    public HttpEntity<BasicResponse> cancelEventParticipation( long eventId, Long userId )
     {
         EventResponse updatedEvent;
 
@@ -1939,7 +2188,7 @@ public class DBResource
                 int count = 1;
 
                 ps.setLong( count++, eventId );
-                ps.setInt( count++, userId );
+                ps.setLong( count++, userId );
 
                 //execute query
                 ps.executeUpdate();
@@ -1947,7 +2196,7 @@ public class DBResource
             }
 
             // Load updated event
-            updatedEvent = loadConfirmedEventById( eventId, userId, conn );
+            updatedEvent = loadConfirmedEventResponseById( eventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -1958,14 +2207,14 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> addJoinRequest( long eventId, int userId, long updatedTime )
+    public HttpEntity<BasicResponse> addJoinRequest( long eventId, Long userId, long updatedTime )
     {
         EventResponse updatedEvent;
 
         try ( Connection conn = getConnection() )
         {
             // Add new join request
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event_join_request ( event_id, requester_id, created_time ) VALUES ( ?, ?, ? ) ON CONFLICT DO NOTHING" ) )
+            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event_join_request ( event_id, requester_id ) VALUES ( ?, ? ) ON CONFLICT DO NOTHING" ) )
             {
 
                 ps.setFetchSize( 1000 );
@@ -1973,8 +2222,7 @@ public class DBResource
                 int count = 1;
 
                 ps.setLong( count++, eventId );
-                ps.setInt( count++, userId );
-                ps.setTimestamp( count++, new Timestamp( updatedTime ) );
+                ps.setLong( count++, userId );
 
                 //execute query
                 ps.executeUpdate();
@@ -1986,10 +2234,12 @@ public class DBResource
                 return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
             }
 
-            //TODO NOTIFICATIONS
+            // Add Notifications
+            Long eventCreatorId = loadConfirmedEventResponseById( eventId, userId, conn ).getConfirmedEvent().getCreatorId();
+            addJoinNotification( eventId, userId, eventCreatorId, conn );
 
             // Load updated event
-            updatedEvent = loadConfirmedEventById( eventId, userId, conn );
+            updatedEvent = loadConfirmedEventResponseById( eventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -2000,7 +2250,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> removeJoinRequest( long confirmedEventId, int userId )
+    public HttpEntity<BasicResponse> removeJoinRequest( long confirmedEventId, Long userId )
     {
         EventResponse updatedEvent;
 
@@ -2010,7 +2260,7 @@ public class DBResource
             removeJoinRequest( confirmedEventId, userId, conn );
 
             //Get updated event
-            updatedEvent = loadConfirmedEventById( confirmedEventId, userId, conn );
+            updatedEvent = loadConfirmedEventResponseById( confirmedEventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -2021,7 +2271,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public void removeJoinRequest( long eventId, int requesterId, Connection conn ) throws SQLException
+    public void removeJoinRequest( long eventId, Long requesterId, Connection conn ) throws SQLException
     {
         // Delete join request
         try ( PreparedStatement ps = conn.prepareStatement( "DELETE FROM event_join_request WHERE event_id = ? AND requester_id = ?" ) )
@@ -2032,7 +2282,7 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, eventId );
-            ps.setInt( count++, requesterId );
+            ps.setLong( count++, requesterId );
 
             //execute query
             ps.executeUpdate();
@@ -2044,17 +2294,17 @@ public class DBResource
     {
         List<JoinRequest> joinRequestList = new ArrayList<>();
 
-        Map<Integer, EventJoinRequest> eventJoinRequestMap;
+        Map<Long, EventJoinRequest> eventJoinRequestMap;
         try ( Connection conn = getConnection() )
         {
             // Get Join Requests
             eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( confirmedEventId, conn );
 
-            Map<Integer, UserProfile> joinRequestedUserMap = getUserProfileByList( new ArrayList<>( eventJoinRequestMap.keySet() ), conn );
+            Map<Long, BasicProfile> joinRequestedUserMap = getUserProfileByList( eventJoinRequestMap.keySet(), conn );
 
             for ( EventJoinRequest eventJoinRequest : eventJoinRequestMap.values() )
             {
-                UserProfile user_profile = joinRequestedUserMap.get( eventJoinRequest.getUserId() );
+                BasicProfile user_profile = joinRequestedUserMap.get( eventJoinRequest.getUserId() );
                 JoinRequest joinRequest = new JoinRequest( user_profile, eventJoinRequest.getEventId(), eventJoinRequest.getCreatedTime() );
 
                 joinRequestList.add( joinRequest );
@@ -2070,9 +2320,9 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( joinRequestList ) );
     }
 
-    public Map<Integer, EventJoinRequest> getEventJoinRequestsByConfirmedEventId( long eventId, Connection conn )
+    public Map<Long, EventJoinRequest> getEventJoinRequestsByConfirmedEventId( long eventId, Connection conn ) throws SQLException
     {
-        Map<Integer, EventJoinRequest> eventJoinRequestMap = new HashMap<>();
+        Map<Long, EventJoinRequest> eventJoinRequestMap = new HashMap<>();
 
         String selectSql = "SELECT " +
                 "jr.event_id, " +
@@ -2099,7 +2349,7 @@ public class DBResource
                     int col = 1;
 
                     long jrConfirmedEventId = rs.getLong( col++ );
-                    int requesterId = rs.getInt( col++ );
+                    Long requesterId = rs.getLong( col++ );
                     long createdTime = rs.getTimestamp( col++ ).getTime();
 
                     EventJoinRequest eventJoinRequest = new EventJoinRequest();
@@ -2111,20 +2361,12 @@ public class DBResource
                 }
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
         }
 
         return eventJoinRequestMap;
     }
 
-    public HttpEntity<BasicResponse> acceptJoinRequest( long confirmedEventId, int requesterId )
+    public HttpEntity<BasicResponse> acceptJoinRequest( long confirmedEventId, Long userId, Long requesterId )
     {
         EventResponse updatedEvent;
 
@@ -2139,6 +2381,9 @@ public class DBResource
 
                 // Remove join request
                 removeJoinRequest( confirmedEventId, requesterId, conn );
+
+                //Add notification
+                addJoinAcceptNotification( confirmedEventId, userId, requesterId, conn );
             }
             catch(SQLException ex)
             {
@@ -2149,10 +2394,8 @@ public class DBResource
             conn.commit();
             conn.setAutoCommit(true);
 
-            //TODO NOTIFICATION to requester
-
             // Load updated event
-            updatedEvent = loadConfirmedEventById( confirmedEventId, requesterId, conn );
+            updatedEvent = loadConfirmedEventResponseById( confirmedEventId, requesterId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -2163,7 +2406,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> addEventInterest( long eventId, int userId, EventInterest eventInterest, long updatedTime )
+    public HttpEntity<BasicResponse> addEventInterest( long eventId, Long userId, EventInterest eventInterest )
     {
         EventResponse eventResponse;
         try ( Connection conn = getConnection() )
@@ -2171,9 +2414,10 @@ public class DBResource
             conn.setAutoCommit(false);
             try
             {
-                addEventInterest( eventId, userId, eventInterest, updatedTime, conn );
+                addEventInterest( eventId, userId, eventInterest, conn );
                 // Add new interest notification
-                addInterestNotification( eventId, userId, conn );
+                Event event = loadEventById( eventId, conn );
+                addInterestNotification( eventId, userId, event.getCreatorId(), conn );
             }
             catch(SQLException ex)
             {
@@ -2185,7 +2429,7 @@ public class DBResource
             conn.setAutoCommit(true);
 
             // Load updated event
-            eventResponse = getEventById( eventId, userId, conn );
+            eventResponse = loadEventResponseById( eventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -2197,7 +2441,7 @@ public class DBResource
 
     }
 
-    public void addEventInterest( long eventId, int userId, EventInterest eventInterest, long updatedTime, Connection conn ) throws SQLException
+    public void addEventInterest( long eventId, Long userId, EventInterest eventInterest, Connection conn ) throws SQLException
     {
         // Add new interested user to the event
         try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event_interested ( event_id, user_id, description ) VALUES ( ?, ?, ? ) ON CONFLICT DO NOTHING" ) )
@@ -2208,7 +2452,7 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, eventId );
-            ps.setInt( count++, userId );
+            ps.setLong( count++, userId );
             ps.setString( count++, eventInterest.getDescription() );
 
             //execute query
@@ -2217,25 +2461,7 @@ public class DBResource
         }
     }
 
-    public void addInterestNotification( long eventId, int userId, Connection conn ) throws SQLException
-    {
-        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO interest_notification ( event_id, user_id ) VALUES ( ?, ? ) ON CONFLICT DO NOTHING" ) )
-        {
-
-            ps.setFetchSize( 1000 );
-
-            int count = 1;
-
-            ps.setLong( count++, eventId );
-            ps.setInt( count++, userId );
-
-            //execute query
-            ps.executeUpdate();
-
-        }
-    }
-
-    public HttpEntity<BasicResponse> removeEventInterest( long eventId, int userId )
+    public HttpEntity<BasicResponse> removeEventInterest( long eventId, Long userId )
     {
         EventResponse updatedEvent = null;
 
@@ -2253,7 +2479,7 @@ public class DBResource
                     int count = 1;
 
                     ps.setLong( count++, eventId );
-                    ps.setInt( count++, userId );
+                    ps.setLong( count++, userId );
 
                     //execute query
                     ps.executeUpdate();
@@ -2269,7 +2495,7 @@ public class DBResource
             conn.commit();
             conn.setAutoCommit(true);
 
-            updatedEvent = getEventById( eventId, userId, conn );
+            updatedEvent = loadEventResponseById( eventId, userId, conn );
 
         }
         catch ( SQLException | URISyntaxException e )
@@ -2295,10 +2521,10 @@ public class DBResource
             int count = 1;
 
             ps.setLong( count++, event.getId() );
-            ps.setTimestamp( count++, new Timestamp( event.getCreatedTime() ) );
+//            ps.setTimestamp( count++, new Timestamp( event.getCreatedTime() ) );
 
             //on duplicate key update
-            ps.setTimestamp( count++, new Timestamp( event.getCreatedTime() ) );
+//            ps.setTimestamp( count++, new Timestamp( event.getCreatedTime() ) );
 
             //execute query
             ps.executeUpdate();
@@ -2312,171 +2538,204 @@ public class DBResource
         return updatedEvent;
     }
 
-    public List<FeedItem> updatePopularActiveEvent( CurrentActivity currentActivity, Connection conn )
+    public HttpEntity<BasicResponse> sendVisibilityRequest( long eventId, Long userId, int friendId, String userTimeZone )
     {
-        List<FeedItem> updatedEvent = new ArrayList<>();
+        EventResponse updatedEvent = null;
 
-        // insert tag
+        try ( Connection conn = getConnection() )
+        {
+            conn.setAutoCommit(false);
+            try
+            {
+                // Automatically add event interest
+                EventInterest eventInterest = new EventInterest( eventId, userId, "Peek" );
+                addEventInterest( eventId, userId, eventInterest, conn );
+                // Make user_profile visible to friend in the event.
+                addEventVisibilityToFriend( eventId, userId, friendId, conn );
 
-        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO popular_active_event ( event_id, user_id, updated_time ) VALUES  ( ?, ?, ? ) ON DUPLICATE KEY UPDATE updated_time = ?" ) )
+                // Add notifications to friend
+                addPeekNotificationToFriend( eventId, userId, friendId, conn );
+            }
+            catch(SQLException e)
+            {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                throw e;
+            }
+
+            conn.commit();
+            conn.setAutoCommit(true);
+
+            updatedEvent = loadEventResponseById( eventId, userId, conn );
+        }
+        catch ( SQLException | URISyntaxException | ZoneRulesException  e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
+    }
+
+    private void addVisibilityRequest( long eventId, int userId, int friendId, Connection conn ) throws SQLException
+    {
+        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO visibility_request ( event_id, user_id, requester_id ) VALUES ( ?, ?, ? )" ) )
+        {
+            int count = 1;
+
+            ps.setLong( count++, eventId );
+            ps.setLong( count++, friendId );
+            ps.setLong( count++, userId ); // Curr user_profile is the requester
+
+            //execute query
+            ps.executeUpdate();
+
+        }
+    }
+
+    private void addEventVisibilityToFriend( long eventId, Long userId, int friendId, Connection conn ) throws SQLException
+    {
+        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event_visibility ( event_id, user_id, friend_id ) VALUES ( ?, ?, ? )" ) )
         {
 
             ps.setFetchSize( 1000 );
 
             int count = 1;
 
-            ps.setLong( count++, currentActivity.getEventId() );
-            ps.setInt( count++, currentActivity.getUserId() );
-            ps.setTimestamp( count++, new Timestamp( currentActivity.getUpdatedTime() ) );
-
-            //on duplicate key update
-            ps.setTimestamp( count++, new Timestamp( currentActivity.getUpdatedTime() ) );
+            // Make curr user visible to the friend
+            ps.setLong( count++, eventId );
+            ps.setLong( count++, friendId );
+            ps.setLong( count++, userId );
 
             //execute query
             ps.executeUpdate();
 
         }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
-        return updatedEvent;
     }
 
-    public HttpEntity<BasicResponse> sendVisibilityRequest( long eventId, int userId, int friendId )
+    public void addInterestNotification( long eventId, Long userId, Long eventCreatorId, Connection conn ) throws SQLException
     {
-        EventResponse updatedEvent = null;
-
-        try ( Connection conn = getConnection() )
+        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO interest_notification ( event_id, user_id, friend_id ) VALUES ( ?, ?, ? ) ON CONFLICT DO NOTHING" ) )
         {
-            //Add visibility request
 
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO visibility_request ( event_id, user_id, requester_id ) VALUES ( ?, ?, ? )" ) )
-            {
+            ps.setFetchSize( 1000 );
 
-                ps.setFetchSize( 1000 );
+            int count = 1;
 
-                int count = 1;
+            ps.setLong( count++, eventId );
+            ps.setLong( count++, eventCreatorId );
+            ps.setLong( count++, userId );
 
-                ps.setLong( count++, eventId );
-                ps.setInt( count++, friendId );
-                ps.setInt( count++, userId ); // Curr user_profile is the requester
-
-                //execute query
-                ps.executeUpdate();
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-
-            updatedEvent = getEventById( eventId, userId, conn );
+            //execute query
+            ps.executeUpdate();
 
         }
-        catch ( SQLException | URISyntaxException e )
-        {
-            e.printStackTrace();
-            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-        }
-
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> addEventVisibility( long eventId, int userId, int friendId )
+    private void addEventInviteAcceptNotification( long confirmedEventId, Long userId, Long senderId, Connection conn ) throws SQLException
     {
-        EventResponse updatedEvent = null;
-
-        try ( Connection conn = getConnection() )
+        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO invite_accept_notification ( event_id, user_id, friend_id ) VALUES ( ?, ?, ? ) ON CONFLICT DO NOTHING" ) )
         {
-            // Make user_profile visible to friend in the event.
 
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event_visibility ( event_id, user_id, friend_id ) VALUES ( ?, ?, ? ) , ( ?, ?, ? )" ) )
-            {
+            ps.setFetchSize( 1000 );
 
-                ps.setFetchSize( 1000 );
+            int count = 1;
 
-                int count = 1;
+            ps.setLong( count++, confirmedEventId );
+            ps.setLong( count++, senderId );
+            ps.setLong( count++, userId );
 
-                // Make curr user_profile visible to the friend
-                ps.setLong( count++, eventId );
-                ps.setInt( count++, friendId );
-                ps.setInt( count++, userId );
-
-                // Make friend visible to the curr user_profile
-                ps.setLong( count++, eventId );
-                ps.setInt( count++, userId );
-                ps.setInt( count++, friendId );
-
-                //execute query
-                ps.executeUpdate();
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-
-            // Remove visibility request
-
-            try ( PreparedStatement ps = conn.prepareStatement( "DELETE FROM visibility_request WHERE event_id = ? AND user_id = ? AND requester_id = ?" ) )
-            {
-
-                ps.setFetchSize( 1000 );
-
-                int count = 1;
-
-                ps.setLong( count++, eventId );
-                ps.setInt( count++, userId );
-                ps.setInt( count++, friendId );
-
-                //execute query
-                ps.executeUpdate();
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-
-            // Add notifications to friend
-
-            try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO visibility_notification ( event_id, user_id, friend_id ) VALUES (?, ?, ?)" ) )
-            {
-
-                ps.setFetchSize( 1000 );
-
-                int count = 1;
-
-                ps.setLong( count++, eventId );
-                ps.setInt( count++, friendId );
-                ps.setInt( count++, userId );
-
-                //execute query
-                ps.executeUpdate();
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-
-            // Load updated event
-
-            updatedEvent = getEventById( eventId, userId, conn );
+            //execute query
+            ps.executeUpdate();
 
         }
-        catch ( SQLException | URISyntaxException e )
-        {
-            e.printStackTrace();
-            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-        }
-
-        return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> removeEventVisibility( long eventId, int userId )
+    private void addJoinNotification( long confirmedEventId, Long userId, Long eventCreatorId, Connection conn ) throws SQLException
+    {
+        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO event_join_notification ( event_id, user_id, friend_id ) VALUES ( ?, ?, ? ) ON CONFLICT DO NOTHING" ) )
+        {
+            int count = 1;
+
+            ps.setLong( count++, confirmedEventId );
+            ps.setLong( count++, eventCreatorId );
+            ps.setLong( count++, userId );
+
+            //execute query
+            ps.executeUpdate();
+
+        }
+    }
+
+    private void addJoinAcceptNotification( long confirmedEventId, Long userId, Long requesterId, Connection conn ) throws SQLException
+    {
+        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO join_accept_notification ( event_id, user_id, friend_id ) VALUES ( ?, ?, ? ) ON CONFLICT DO NOTHING" ) )
+        {
+            int count = 1;
+
+            ps.setLong( count++, confirmedEventId );
+            ps.setLong( count++, requesterId );
+            ps.setLong( count++, userId );
+
+            //execute query
+            ps.executeUpdate();
+
+        }
+    }
+
+    private void addEventStartNotification( long eventId, List<Long> userIdList, Connection conn ) throws SQLException
+    {
+        StringBuilder stringBuilder = new StringBuilder("INSERT INTO event_start_notification ( event_id, user_id ) VALUES ");
+
+        String delim = " ";
+
+        for ( Long userId : userIdList )
+        {
+            stringBuilder.append( delim );
+            stringBuilder.append( "(?, ?)" );
+            delim = ", ";
+        }
+
+        try ( PreparedStatement ps = conn.prepareStatement( stringBuilder.toString() ) )
+        {
+            int count = 1;
+
+            for ( Long userId : userIdList )
+            {
+                ps.setLong( count++, eventId );
+                ps.setLong( count++, userId );
+            }
+
+            //execute query
+            ps.executeUpdate();
+        }
+    }
+
+    private OffsetDateTime getCurrentTime( String userTimeZone )
+    {
+        LocalDateTime dt = LocalDateTime.now();
+        ZoneId zone = ZoneId.of( userTimeZone );
+        ZonedDateTime zdt = dt.atZone(zone); // user current timestamp
+        OffsetDateTime offsetDateTime = zdt.toOffsetDateTime();
+        return offsetDateTime;
+    }
+
+    private void addPeekNotificationToFriend( long eventId, Long userId, int friendId, Connection conn ) throws SQLException
+    {
+        try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO visibility_notification ( event_id, user_id, friend_id ) VALUES (?, ?, ?)" ) )
+        {
+            int count = 1;
+
+            ps.setLong( count++, eventId );
+            ps.setLong( count++, friendId );
+            ps.setLong( count++, userId );
+
+            //execute query
+            ps.executeUpdate();
+        }
+    }
+
+    public HttpEntity<BasicResponse> removeEventVisibility( long eventId, Long userId )
     {
         EventResponse updatedEvent = null;
 
@@ -2492,19 +2751,14 @@ public class DBResource
                 int count = 1;
 
                 ps.setLong( count++, eventId );
-                ps.setInt( count++, userId );
+                ps.setLong( count++, userId );
 
                 //execute query
                 ps.executeUpdate();
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
 
-            updatedEvent = getEventById( eventId, userId, conn );
-
+            updatedEvent = loadEventResponseById( eventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -2515,19 +2769,25 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> getVisibilityRequests( int userId )
+    public HttpEntity<BasicResponse>  getVisibilityRequests( Long userId )
     {
         List<VisibilityRequest> notificationList = new ArrayList<>();
 
         try ( Connection conn = getConnection() )
         {
             // Get Event Visibility Requests
-
             String sqlSb = "SELECT " +
                     "u.name, " +
                     "vr.requester_id, " +
+                    "vr.created_time, " +
                     EVENT_SELECT +
-                    " ,visibility_request vr, user_profile u WHERE vr.user_id = ? AND vr.event_id = e.id AND vr.requester_id = u.id";
+                    " ,visibility_request vr, user_profile u " +
+                    "WHERE vr.user_id = ? " +
+                    "AND ( vr.created_time, vr.event_id, vr.requester_id) < ( ?, ?, ? )" +
+                    "AND vr.event_id = e.id " +
+                    "AND vr.requester_id = u.id " +
+                    "ORDER BY vr.created_time DESC, vr.event_id DESC, vr.requester_id DESC " +
+                    "LIMIT 10";
 
             try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
             {
@@ -2536,7 +2796,7 @@ public class DBResource
 
                 int count = 1;
 
-                ps.setInt( count++, userId );
+                ps.setLong( count++, userId );
 
                 //execute query
                 try ( ResultSet rs = ps.executeQuery() )
@@ -2547,7 +2807,8 @@ public class DBResource
                     {
                         int col = 1;
                         String requesterName = rs.getString( col++ );
-                        int requesterUserId = rs.getInt( col++ );
+                        Long requesterUserId = rs.getLong( col++ );
+                        OffsetDateTime createdDt = rs.getObject( col++, OffsetDateTime.class );
 
                         Event event = new Event();
                         event.load( rs );
@@ -2557,34 +2818,29 @@ public class DBResource
                         friend.setDisplayName( requesterName );
 
                         VisibilityRequest notification = new VisibilityRequest();
+                        notification.setId( event.getId() + "-" + friend.getUserId() + "-" + userId );
                         notification.setUser( friend );
-                        notification.setEvent( event );
+                        notification.setCreatedTimeUtc( createdDt.toInstant().toEpochMilli() );
 
                         notificationList.add( notification );
                     }
 
                 }
-                catch ( SQLException e )
-                {
-                    e.printStackTrace();
-                    return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-                }
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
             }
         }
         catch ( SQLException | URISyntaxException e )
         {
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
+
+        // Sort by latest timestamp
+        notificationList.sort( ( o1, o2 ) -> Long.compare( o2.getCreatedTimeUtc(), o1.getCreatedTimeUtc() ) );
+
         return new HttpEntity<>( new BasicResponse( notificationList ) );
     }
 
     //TODO Decline visibility request
-    public HttpEntity<BasicResponse> declineVisibilityRequest( long eventId, int userId, int requesterId )
+    public HttpEntity<BasicResponse> declineVisibilityRequest( long eventId, Long userId, int requesterId )
     {
         EventResponse updatedEvent = null;
 
@@ -2599,7 +2855,7 @@ public class DBResource
                 int count = 1;
 
                 ps.setLong( count++, eventId );
-                ps.setInt( count++, userId );
+                ps.setLong( count++, userId );
                 ps.setInt( count++, requesterId );
 
                 //execute query
@@ -2611,7 +2867,7 @@ public class DBResource
                 e.printStackTrace();
             }
 
-            updatedEvent = getEventById( eventId, userId, conn );
+            updatedEvent = loadEventResponseById( eventId, userId, conn );
 
         }
         catch ( SQLException | URISyntaxException e )
@@ -2623,40 +2879,80 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedEvent ) );
     }
 
-    public HttpEntity<BasicResponse> getEventNotifications( int userId )
+    public void refreshAppNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException, JsonProcessingException
     {
-        List<EventNotification> notificationList = new ArrayList<>();
+        List<EventNotification> eventNotificationList = new ArrayList<>();
+
+        eventNotificationList.addAll( loadInterestNotifications( userId, lastTimestampUtc, conn ) );
+        eventNotificationList.addAll( loadPeekNotifications( userId, lastTimestampUtc, conn ) );
+        eventNotificationList.addAll( loadEventInviteNotifications( userId, lastTimestampUtc, conn ) );
+        eventNotificationList.addAll( loadInviteAcceptNotifications( userId, lastTimestampUtc, conn ) );
+        eventNotificationList.addAll( loadEventJoinNotifications( userId, lastTimestampUtc, conn ) );
+        eventNotificationList.addAll( loadJoinAcceptNotifications( userId, lastTimestampUtc, conn ) );
+        eventNotificationList.addAll( loadEventStartNotifications( userId, lastTimestampUtc, conn ) );
+
+        List<AppNotification> appNotificationList = generateAppNotifications( eventNotificationList, conn );
+        saveAppNotifications( userId, appNotificationList, conn );
+    }
+
+    public HttpEntity<BasicResponse> getAppNotifications( Long userId, String pageKey )
+    {
+        DataListPage<AppNotification> dataListPage = new DataListPage<>();
+        List<AppNotification> notificationList;
 
         try ( Connection conn = getConnection() )
         {
-           notificationList.addAll( getInterestNotifications( userId, conn ) );
-           notificationList.addAll( getVisibilityRevealNotifications( userId, conn ) );
-           notificationList.addAll( getEventInviteNotifications( userId, conn ) );
-           notificationList.addAll( getEventAcceptNotifications( userId, conn ) );
+            Long beforeId = null;
+            OffsetDateTime beforeTimestampUtc = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                beforeId = Long.parseLong( list[0] );
+                beforeTimestampUtc = OffsetDateTime.parse( list[1] );
+            }
+            else
+            {
+                OffsetDateTime lastTimestampUtc = getLastTimestampUtc( userId, conn );
+                refreshAppNotifications( userId, lastTimestampUtc, conn );
+            }
+
+            notificationList = loadAppNotifications( userId, beforeId, beforeTimestampUtc, 21, conn );
+
+            if( notificationList.size() <= 20 )
+            {
+                dataListPage.setItemList( notificationList );
+            }
+            else
+            {
+                AppNotification lastItem = notificationList.get( notificationList.size() - 2 );
+                String nextPageKey = lastItem.getId() + "/" + lastItem.getCreatedDt();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( notificationList.subList( 0, 20 ) );
+            }
+
         }
-        catch ( SQLException | URISyntaxException e )
+        catch ( SQLException | URISyntaxException | JsonProcessingException e )
         {
             e.printStackTrace();
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( notificationList ) );
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
     }
 
-    public List<EventInterestNotification> getInterestNotifications( int userId, Connection conn )
+    //TODO Performance
+    public OffsetDateTime getLastTimestampUtc( long userId, Connection conn ) throws SQLException
     {
-        List<EventInterestNotification> notificationList = new ArrayList<>();
+        OffsetDateTime lastTimestampUtc = null;
 
-        Set<Integer> userList = new HashSet<>();
-        Map<Long, Event> eventMap = new HashMap<>();
-        Map<Long, List<Integer>> eventInterestedMap = new HashMap<>();
-
-        // Get new event interests
-
+        // Get new notifications
         String sqlSb = "SELECT " +
-                "i.user_id, " +
-                EVENT_SELECT +
-                ", interest_notification i, user_profile u WHERE e.creator_id = ? AND i.event_id = e.id AND i.user_id = u.id";
+                "i.created_time " +
+                "FROM app_notification i " +
+                "WHERE i.user_id = ? " +
+                "ORDER BY i.created_time DESC " +
+                "LIMIT 1";
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
         {
@@ -2665,7 +2961,7 @@ public class DBResource
 
             int count = 1;
 
-            ps.setInt( count++, userId );
+            ps.setLong( count++, userId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -2675,435 +2971,540 @@ public class DBResource
                 while ( rs.next() )
                 {
                     int col = 1;
-                    int interestedUserId = rs.getInt( col++ );
+                    OffsetDateTime createdUtc = rs.getObject( col++, OffsetDateTime.class );
+
+                    lastTimestampUtc = createdUtc;
+                }
+
+            }
+        }
+
+        return lastTimestampUtc;
+    }
+
+    public List<AppNotification> generateAppNotifications( List<EventNotification> eventNotificationList, Connection conn ) throws SQLException, JsonProcessingException
+    {
+        List<AppNotification> notificationList = new ArrayList<>();
+
+        ObjectMapper mapper = new ObjectMapper();
+
+        Set<Long> eventIdSet = new HashSet<>();;
+        Set<Long> userIdSet = new HashSet<>();
+
+        for ( EventNotification eventNotification : eventNotificationList )
+        {
+            eventIdSet.add( eventNotification.getEventId() );
+            userIdSet.addAll( eventNotification.getData() );
+        }
+
+        Map<Long, Event> eventMap = loadEventByIdList( eventIdSet, conn );
+        Map<Long, BasicProfile> userProfileMap = getUserProfileByList( userIdSet, conn );
+
+        for ( EventNotification eventNotification : eventNotificationList )
+        {
+            if( eventNotification.getType() == AppNotificationType.EVENT_INTEREST )
+            {
+                List<Long> interestedUserIdList = eventNotification.getData();
+
+                String message;
+                String payload = mapper.writeValueAsString( eventNotification );
+
+                if( interestedUserIdList.size() == 1 )
+                {
+                    message = "A friend is interested in the same idea";
+                } else {
+                    int count = interestedUserIdList.size();
+                    message = (count) + "+ friends are interested in the same idea";
+                }
+
+                AppNotification notification = new AppNotification();
+                notification.setMessage( message );
+                notification.setType( eventNotification.getType().getId() );
+                notification.setPayload( payload );
+                notification.setCreatedDt( eventNotification.getTimestampUtc() );
+
+                notificationList.add( notification );
+            }
+            else if( eventNotification.getType() == AppNotificationType.EVENT_PEEK )
+            {
+                List<Long> friendIdList = eventNotification.getData();
+
+                String message;
+                String payload = mapper.writeValueAsString( eventNotification );
+
+                if( friendIdList.size() == 1 )
+                {
+                    BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                    message = friendProfile.getDisplayName() + " is peeking at you";
+                }
+                else {
+                    BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                    int count = friendIdList.size();
+                    message = friendProfile.getDisplayName() + " and " + (count) + "+ friends are peeking at you";
+                }
+
+                AppNotification notification = new AppNotification();
+                notification.setMessage( message );
+                notification.setType( eventNotification.getType().getId() );
+                notification.setPayload( payload );
+                notification.setCreatedDt( eventNotification.getTimestampUtc() );
+
+                notificationList.add( notification );
+            }
+            else if( eventNotification.getType() == AppNotificationType.EVENT_INVITE )
+            {
+                List<Long> friendIdList = eventNotification.getData();
+
+                String message;
+                String payload = mapper.writeValueAsString( eventNotification );
+
+                BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                Event event = eventMap.get( eventNotification.getEventId() );
+                message = friendProfile.getDisplayName() + " is inviting you to the event " + event.getDescription();
+
+                AppNotification notification = new AppNotification();
+                notification.setMessage( message );
+                notification.setType( eventNotification.getType().getId() );
+                notification.setPayload( payload );
+                notification.setCreatedDt( eventNotification.getTimestampUtc() );
+
+                notificationList.add( notification );
+            }
+            else if( eventNotification.getType() == AppNotificationType.EVENT_INVITE_ACCEPT )
+            {
+                List<Long> friendIdList = eventNotification.getData();
+
+                String message;
+                String payload = mapper.writeValueAsString( eventNotification );
+
+                if( friendIdList.size() == 1 )
+                {
+                    BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                    message = friendProfile.getDisplayName() + " accepted your invite";
+                }
+                else {
+                    BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                    int count = friendIdList.size();
+                    message = friendProfile.getDisplayName() + " and " + (count) + "+ friends accepted your invite";
+                }
+
+                AppNotification notification = new AppNotification();
+                notification.setMessage( message );
+                notification.setType( eventNotification.getType().getId() );
+                notification.setPayload( payload );
+                notification.setCreatedDt( eventNotification.getTimestampUtc() );
+
+                notificationList.add( notification );
+            }
+            else if( eventNotification.getType() == AppNotificationType.EVENT_JOIN )
+            {
+                List<Long> friendIdList = eventNotification.getData();
+
+                String message;
+                String payload = mapper.writeValueAsString( eventNotification );
+
+                if( friendIdList.size() == 1 )
+                {
+                    BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                    message = friendProfile.getDisplayName() + " wants to join your event";
+                }
+                else {
+                    BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                    int count = friendIdList.size();
+                    message = friendProfile.getDisplayName() + " and " + (count) + "+ friends want to join your event";
+                }
+
+                AppNotification notification = new AppNotification();
+                notification.setMessage( message );
+                notification.setType( eventNotification.getType().getId() );
+                notification.setPayload( payload );
+                notification.setCreatedDt( eventNotification.getTimestampUtc() );
+
+                notificationList.add( notification );
+            }
+            else if( eventNotification.getType() == AppNotificationType.EVENT_JOIN_ACCEPT )
+            {
+                List<Long> friendIdList = eventNotification.getData();
+
+                String message;
+                String payload = mapper.writeValueAsString( eventNotification );
+
+                BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
+                message = friendProfile.getDisplayName() + " accepted your join request";
+
+                AppNotification notification = new AppNotification();
+                notification.setMessage( message );
+                notification.setType( eventNotification.getType().getId() );
+                notification.setPayload( payload );
+                notification.setCreatedDt( eventNotification.getTimestampUtc() );
+
+                notificationList.add( notification );
+            }
+            else if( eventNotification.getType() == AppNotificationType.EVENT_START )
+            {
+                String message;
+                String payload = mapper.writeValueAsString( eventNotification );
+
+                Event event = eventMap.get( eventNotification.getEventId() );
+                message = event.getDescription() + " has started";
+
+                AppNotification notification = new AppNotification();
+                notification.setMessage( message );
+                notification.setType( eventNotification.getType().getId() );
+                notification.setPayload( payload );
+                notification.setCreatedDt( eventNotification.getTimestampUtc() );
+
+                notificationList.add( notification );
+            }
+        }
+
+        return notificationList;
+    }
+
+    public List<AppNotification> loadAppNotifications( Long userId, Long beforeId, OffsetDateTime beforeTimestampUtc, int limit, Connection conn ) throws SQLException
+    {
+        List<AppNotification> notificationList = new ArrayList<>();
+
+        // Get new notifications
+        StringBuilder sqlSb =  new StringBuilder("SELECT " +
+                "i.id, " +
+                "i.user_id, " +
+                "i.message, " +
+                "i.payload, " +
+                "i.type_id, " +
+                "i.created_time " +
+                "FROM app_notification i " +
+                "WHERE i.user_id = ? ");
+
+       if( beforeId != null && beforeTimestampUtc != null )
+        {
+            sqlSb.append(  "AND ( i.id, i.created_time ) < ( ?, ? ) " );
+        }
+
+        sqlSb.append( "ORDER BY i.id DESC, i.created_time DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, userId );
+
+            if( beforeId != null && beforeTimestampUtc != null )
+            {
+                ps.setLong( count++, beforeId );
+                ps.setObject( count++, beforeTimestampUtc );
+            }
+
+            ps.setInt( count++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    long id = rs.getLong( col++ );
+                    long appUserId = rs.getLong( col++ );
+                    String message = rs.getString( col++ );
+                    String payload = rs.getString( col++ );
+                    int typeId = rs.getInt( col++ );
+                    OffsetDateTime createdUtc = rs.getObject( col++, OffsetDateTime.class );
+
+                    AppNotification notification = new AppNotification();
+                    notification.setId( id );
+                    notification.setMessage( message );
+                    notification.setType( typeId );
+                    notification.setPayload( payload );
+                    notification.setCreatedDt( createdUtc );
+
+                    notificationList.add( notification );
+                }
+
+            }
+        }
+
+        return notificationList;
+    }
+
+    public List<EventNotification> loadInterestNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException
+    {
+        // Get new notifications
+        String sqlSb = "SELECT " +
+                "i.event_id, " +
+                "i.user_id, " +
+                "i.friend_id, " +
+                "i.created_time " +
+                "FROM interest_notification i WHERE i.user_id = ? ";
+
+        return loadEventNotifications( userId, lastTimestampUtc, conn, sqlSb, EventInterestNotification::new );
+    }
+
+    public List<EventNotification> loadPeekNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException
+    {
+        // Get new notifications
+        String sqlSb = "SELECT " +
+                "i.event_id, " +
+                "i.user_id, " +
+                "i.friend_id, " +
+                "i.created_time " +
+                "FROM visibility_notification i WHERE i.user_id = ?";
+
+        return loadEventNotifications( userId, lastTimestampUtc, conn, sqlSb, EventPeekNotification::new );
+    }
+
+    public List<EventNotification> loadEventInviteNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException
+    {
+        // Get new notifications
+        String sqlSb = "SELECT " +
+                "i.event_id, " +
+                "i.user_id, " +
+                "i.friend_id, " +
+                "i.created_time " +
+                "FROM event_invite_notification i WHERE i.user_id = ? ";
+
+        return loadEventNotifications( userId, lastTimestampUtc, conn, sqlSb, EventInviteNotification::new );
+    }
+
+    public List<EventNotification> loadInviteAcceptNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException
+    {
+        // Get new notifications
+        String sqlSb = "SELECT " +
+                "i.event_id, " +
+                "i.user_id, " +
+                "i.friend_id, " +
+                "i.created_time " +
+                "FROM invite_accept_notification i WHERE i.user_id = ? ";
+
+        return loadEventNotifications( userId, lastTimestampUtc, conn, sqlSb, InviteAcceptNotification::new );
+    }
+
+    public List<EventNotification> loadEventJoinNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException
+    {
+        // Get new notifications
+        String sqlSb = "SELECT " +
+                "i.event_id, " +
+                "i.user_id, " +
+                "i.friend_id, " +
+                "i.created_time " +
+                "FROM event_join_notification i WHERE i.user_id = ? ";
+
+        return loadEventNotifications( userId, lastTimestampUtc, conn, sqlSb, EventJoinNotification::new );
+    }
+
+    public List<EventNotification> loadJoinAcceptNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException
+    {
+        // Get new notifications
+        String sqlSb = "SELECT " +
+                "i.event_id, " +
+                "i.user_id, " +
+                "i.friend_id, " +
+                "i.created_time " +
+                "FROM join_accept_notification i WHERE i.user_id = ? ";
+
+        return loadEventNotifications( userId, lastTimestampUtc, conn, sqlSb, JoinAcceptNotification::new );
+    }
+
+    public List<EventStartNotification> loadEventStartNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn ) throws SQLException
+    {
+        List<EventStartNotification> notificationList = new ArrayList<>();
+
+        Map<Long, List<NotificationModel>> notificationModelMap = new HashMap<>();
+
+        // Get new notifications
+        String sqlSb = "SELECT " +
+                "i.event_id, " +
+                "i.user_id, " +
+                "i.created_time " +
+                "FROM event_start_notification i WHERE i.user_id = ? ";
+
+        if( lastTimestampUtc != null )
+        {
+            sqlSb += "AND i.created_time > ?";
+        }
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, userId );
+
+            if( lastTimestampUtc != null )
+            {
+                ps.setObject( count++, lastTimestampUtc );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
                     long eventId = rs.getLong( col++ );
+                    long appUserId = rs.getLong( col++ );
+                    OffsetDateTime createdUtc = rs.getObject( col++, OffsetDateTime.class );
 
-                    Event event = new Event();
-                    event.load( rs );
+                    NotificationModel notificationModel = new NotificationModel( eventId, -1L, createdUtc );
 
-                    userList.add( interestedUserId );
-                    eventMap.putIfAbsent( eventId, event );
+                    List<NotificationModel> notificationModelList = new ArrayList<>();
+                    notificationModelList.add( notificationModel );
 
-                    List<Integer> interestedUserIdList = new ArrayList<>();
-                    interestedUserIdList.add( interestedUserId );
-
-                    eventInterestedMap.merge( eventId, interestedUserIdList, ( currList, newList ) -> {
-                        currList.add( interestedUserId );
+                    notificationModelMap.merge( eventId, notificationModelList, ( currList, newList ) -> {
+                        currList.addAll( newList );
                         return currList;
                     } );
                 }
 
             }
-            catch ( SQLException e )
+        }
+
+        for ( Long eventId : notificationModelMap.keySet() )
+        {
+            List<NotificationModel> eventInterestList = notificationModelMap.get( eventId );
+
+            List<OffsetDateTime> createdTimeUtcList = eventInterestList.stream().map( NotificationModel::getCreatedTimeUtc ).sorted( Comparator.reverseOrder() ).collect( Collectors.toList() );
+
+            EventStartNotification eventNotification = new EventStartNotification();
+            eventNotification.setEventId( eventId );
+            eventNotification.setTimestampUtc( createdTimeUtcList.get( 0 ) );
+            eventNotification.setData( new ArrayList<>() );
+
+            notificationList.add( eventNotification );
+
+        }
+
+        return notificationList;
+    }
+
+    private List<EventNotification> loadEventNotifications( Long userId, OffsetDateTime lastTimestampUtc, Connection conn, String sqlSb, EventNotificationFactory factory ) throws SQLException
+    {
+        List<EventNotification> notificationList = new ArrayList<>();
+
+        if( lastTimestampUtc != null )
+        {
+            sqlSb += "AND i.created_time > ?";
+        }
+
+        Map<Long, List<NotificationModel>> notificationModelMap = new HashMap<>();
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
+        {
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, userId );
+
+            if( lastTimestampUtc != null )
             {
-                e.printStackTrace();
-                return notificationList;
+                ps.setObject( count++, lastTimestampUtc );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    long eventId = rs.getLong( col++ );
+                    long appUserId = rs.getLong( col++ );
+                    int friendId = rs.getInt( col++ );
+                    OffsetDateTime createdUtc = rs.getObject( col++, OffsetDateTime.class );
+
+                    NotificationModel notificationModel = new NotificationModel( eventId, friendId, createdUtc );
+
+                    List<NotificationModel> notificationModelList = new ArrayList<>();
+                    notificationModelList.add( notificationModel );
+
+                    notificationModelMap.merge( eventId, notificationModelList, ( currList, newList ) -> {
+                        currList.addAll( newList );
+                        return currList;
+                    } );
+                }
+
             }
         }
-        catch ( SQLException e )
+
+        for ( Long eventId : notificationModelMap.keySet() )
         {
-            e.printStackTrace();
-            return notificationList;
-        }
+            List<NotificationModel> eventInterestList = notificationModelMap.get( eventId );
 
+            List<Long> interestedFriendIdList = eventInterestList.stream().map( NotificationModel::getFriendId ).collect( Collectors.toList());
+            List<OffsetDateTime> createdTimeUtcList = eventInterestList.stream().map( NotificationModel::getCreatedTimeUtc ).sorted( Comparator.reverseOrder() ).collect( Collectors.toList() );
 
-        if ( eventMap.isEmpty() )
-        {
-            return notificationList;
-        }
-
-        for ( Long eventId : eventInterestedMap.keySet() )
-        {
-            List<Integer> interestedUserIdList = eventInterestedMap.get( eventId );
-            EventInterestNotification interestNotification = new EventInterestNotification();
-
-            Event event = eventMap.get( eventId );
-            interestNotification.setEvent( event );
-            interestNotification.setInterestedUserCount( interestedUserIdList.size() );
+            EventNotification interestNotification = factory.construct();
+            interestNotification.setEventId( eventId );
+            interestNotification.setTimestampUtc( createdTimeUtcList.get( 0 ) );
+            interestNotification.setData( interestedFriendIdList );
 
             notificationList.add( interestNotification );
-
         }
-
-        // Remove interest notifications
-
-//            StringBuilder deleteSb = new StringBuilder( "DELETE FROM interest_notification  WHERE event_id IN ( " );
-//
-//            String delim = "";
-//
-//            for ( Long eventId : eventInterestedMap.keySet() )
-//            {
-//                deleteSb.append( delim );
-//                deleteSb.append( "?" );
-//                delim = ", ";
-//            }
-//
-//            deleteSb.append( " )" );
-//            deleteSb.append( " AND user_id IN ( " );
-//
-//            delim = "";
-//
-//            for ( int interestedUserId : userList )
-//            {
-//                deleteSb.append( delim );
-//                deleteSb.append( "?" );
-//                delim = ", ";
-//            }
-//
-//            deleteSb.append( " )" );
-//
-//            try ( PreparedStatement ps = conn.prepareStatement( deleteSb.toString() ) )
-//            {
-//
-//                ps.setFetchSize( 1000 );
-//
-//                int count = 1;
-//
-//                for ( Long eventId : eventInterestedMap.keySet() )
-//                {
-//                    ps.setLong( count++, eventId );
-//                }
-//
-//                for ( int interestedUserId : userList )
-//                {
-//                    ps.setInt( count++, interestedUserId );
-//                }
-//
-//                //execute query
-//                ps.executeUpdate();
-//
-//            }
-//            catch ( SQLException e )
-//            {
-//                e.printStackTrace();
-//            }
-
         return notificationList;
     }
 
-    public List<EventAcceptNotification> getEventAcceptNotifications( int userId, Connection conn )
+    public void saveAppNotifications( long userId, List<AppNotification> notificationList, Connection conn ) throws SQLException
     {
-        List<EventAcceptNotification> notificationList = new ArrayList<>();
-
-        // Get new event interests
-
-        String sqlSb = "SELECT " +
-                "i.user_id, " +
-                "u.name, " +
-               CONFIRMED_EVENT_SELECT +
-                ", accept_notification i, user_profile u WHERE ce.creator_id = ? AND i.event_id = ce.id AND i.user_id = u.id";
-
-        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
+        if( notificationList.isEmpty() )
         {
+            return;
+        }
 
-            ps.setFetchSize( 1000 );
+        StringBuilder sqlSb = new StringBuilder(
+                "INSERT INTO app_notification ( " +
+                        "user_id, " +
+                        "message, " +
+                        "payload, " +
+                        "type_id, " +
+                        "created_time " +
+                        ") VALUES "
+        );
 
+        String delim = " ";
+
+        for ( AppNotification notification : notificationList )
+        {
+            sqlSb.append( delim );
+            sqlSb.append( "( ?, ?, ?, ?, ? )" );
+            delim = ", ";
+        }
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
             int count = 1;
 
-            ps.setInt( count++, userId );
+            for ( AppNotification notification : notificationList )
+            {
+                ps.setLong( count++, userId );
+                ps.setString( count++, notification.getMessage() );
+                ps.setString( count++, notification.getPayload() );
+                ps.setInt( count++, notification.getType() );
+                ps.setObject( count++, notification.getCreatedDt() );
+            }
 
             //execute query
-            try ( ResultSet rs = ps.executeQuery() )
-            {
-                //position result to first
-
-                while ( rs.next() )
-                {
-                    int col = 1;
-                    int participantId = rs.getInt( col++ );
-                    String participantDisplayName = rs.getString( col++ );
-
-                    ConfirmedEvent event = new ConfirmedEvent();
-                    event.load( rs );
-
-                    UserProfile participant = new UserProfile( participantId, null, null, participantDisplayName );
-
-                    EventAcceptNotification notification = new EventAcceptNotification();
-                    notification.setEvent( event );
-                    notification.setUser( participant );
-
-                    notificationList.add( notification );
-                }
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return notificationList;
-            }
+            ps.executeUpdate();
         }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-            return notificationList;
-        }
-
-        // Remove accept notifications
-
-//            StringBuilder deleteSb = new StringBuilder( "DELETE FROM accept_notification  WHERE event_id IN ( " );
-//
-//            String delim = "";
-//
-//            for ( Long eventId : eventInterestedMap.keySet() )
-//            {
-//                deleteSb.append( delim );
-//                deleteSb.append( "?" );
-//                delim = ", ";
-//            }
-//
-//            deleteSb.append( " )" );
-//            deleteSb.append( " AND user_id IN ( " );
-//
-//            delim = "";
-//
-//            for ( int interestedUserId : userList )
-//            {
-//                deleteSb.append( delim );
-//                deleteSb.append( "?" );
-//                delim = ", ";
-//            }
-//
-//            deleteSb.append( " )" );
-//
-//            try ( PreparedStatement ps = conn.prepareStatement( deleteSb.toString() ) )
-//            {
-//
-//                ps.setFetchSize( 1000 );
-//
-//                int count = 1;
-//
-//                for ( Long eventId : eventInterestedMap.keySet() )
-//                {
-//                    ps.setLong( count++, eventId );
-//                }
-//
-//                for ( int interestedUserId : userList )
-//                {
-//                    ps.setInt( count++, interestedUserId );
-//                }
-//
-//                //execute query
-//                ps.executeUpdate();
-//
-//            }
-//            catch ( SQLException e )
-//            {
-//                e.printStackTrace();
-//            }
-
-        return notificationList;
     }
 
-    public List<VisibilityRevealNotification> getVisibilityRevealNotifications( int userId, Connection conn )
-    {
-        List<VisibilityRevealNotification> notificationList = new ArrayList<>();
-
-        // Get Event Requests
-
-        String sqlSb = "SELECT " +
-                "u.name, " +
-                "vn.friend_id, " +
-               EVENT_SELECT +
-                ", visibility_notification vn, user_profile u WHERE vn.user_id = ? AND vn.event_id = e.id AND vn.friend_id = u.id";
-
-        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
-        {
-
-            ps.setFetchSize( 1000 );
-
-            int count = 1;
-
-            ps.setInt( count++, userId );
-
-            //execute query
-            try ( ResultSet rs = ps.executeQuery() )
-            {
-                //position result to first
-
-                while ( rs.next() )
-                {
-                    int col = 1;
-                    String friendName = rs.getString( col++ );
-                    int friendUserId = rs.getInt( col++ );
-
-                    Event event = new Event();
-                    event.load( rs );
-
-                    UserProfile friend = new UserProfile();
-                    friend.setUserId( friendUserId );
-                    friend.setDisplayName( friendName );
-
-                    VisibilityRevealNotification notification = new VisibilityRevealNotification();
-                    notification.setUser( friend );
-                    notification.setEvent( event );
-
-                    notificationList.add( notification );
-                }
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return notificationList;
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-            return notificationList;
-        }
-
-        return notificationList;
-    }
-
-    public List<EventInviteNotification> getEventInviteNotifications( int userId, Connection conn )
-    {
-        List<EventInviteNotification> notificationList = new ArrayList<>();
-
-        // Get Event Visibility Requests
-
-        String sqlSb = "SELECT " +
-                "u.name, " +
-                "ei.sender_id, " +
-                CONFIRMED_EVENT_SELECT +
-                ", event_invite ei, user_profile u WHERE ei.receiver_id = ? AND ei.event_id = ce.id AND ei.sender_id = u.id";
-
-        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
-        {
-
-            ps.setFetchSize( 1000 );
-
-            int count = 1;
-
-            ps.setInt( count++, userId );
-
-            //execute query
-            try ( ResultSet rs = ps.executeQuery() )
-            {
-                //position result to first
-
-                while ( rs.next() )
-                {
-                    int col = 1;
-                    String friendName = rs.getString( col++ );
-                    int friendUserId = rs.getInt( col++ );
-                    long eventId = rs.getLong( col++ );
-
-                    ConfirmedEvent event = new ConfirmedEvent();
-                    event.load( rs );
-
-                    UserProfile friend = new UserProfile();
-                    friend.setUserId( friendUserId );
-                    friend.setDisplayName( friendName );
-
-                    EventInviteNotification notification = new EventInviteNotification();
-                    notification.setUser( friend );
-                    notification.setEvent( event );
-
-                    notificationList.add( notification );
-                }
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return notificationList;
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-            return notificationList;
-        }
-
-        return notificationList;
-    }
-
-    public long getLastCreatedValueForEvent( Connection conn )
-    {
-        long eventId = -1L;
-
-        try ( PreparedStatement ps = conn.prepareStatement( "SELECT PREVIOUS VALUE FOR event_sequence" ) )
-        {
-            try ( ResultSet rs = ps.executeQuery() )
-            {
-                while ( rs.next() )
-                {
-                    eventId = rs.getLong( 1 );
-                }
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
-        return eventId;
-    }
-
-    public long getLastCreatedValueForConfirmedEvent( Connection conn )
-    {
-        long eventId = -1L;
-
-        try ( PreparedStatement ps = conn.prepareStatement( "SELECT PREVIOUS VALUE FOR confirmed_event_sequence" ) )
-        {
-            try ( ResultSet rs = ps.executeQuery() )
-            {
-                while ( rs.next() )
-                {
-                    eventId = rs.getLong( 1 );
-                }
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
-        return eventId;
-    }
-
-    public int getLastCreatedValueForUser( Connection conn )
-    {
-        int userId = -1;
-
-        try ( PreparedStatement ps = conn.prepareStatement( "SELECT PREVIOUS VALUE FOR user_sequence" ) )
-        {
-            try ( ResultSet rs = ps.executeQuery() )
-            {
-                while ( rs.next() )
-                {
-                    userId = rs.getInt( 1 );
-                }
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
-        return userId;
-    }
-
-    public HttpEntity<BasicResponse> getEventById( long eventId, int userId )
+    public HttpEntity<BasicResponse> loadEventResponseById( long eventId, Long userId )
     {
         EventResponse eventResponse;
         
         try ( Connection conn = getConnection() )
         {
-            eventResponse = getEventById( eventId, userId, conn );
+            eventResponse = loadEventResponseById( eventId, userId, conn );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -3114,10 +3515,10 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( eventResponse ) );
     }
 
-    public EventResponse getEventById( long eventId, int userId, Connection conn )
+    public EventResponse loadEventResponseById( long eventId, Long userId, Connection conn ) throws SQLException
     {
         EventResponse eventResponse = null;
-        List<Integer> friendIdList = getFriendIdList( userId, conn );
+        Set<Long> friendIdList = getFriendIdList( userId, conn );
 
         String sqlSb = "SELECT " + EVENT_SELECT +
                 "WHERE e.id = ?";
@@ -3140,12 +3541,12 @@ public class DBResource
                 {
                     eventResponse = new EventResponse();
 
-                    Map<Integer, EventInterest> eventInterestMap = getEventInterested( eventId, conn );
+                    Map<Long, EventInterest> eventInterestMap = loadEventInterested( eventId, conn );
                     List<String> tagList = getTagListByEventId( eventId, conn );
 
                     int interestedFriendCount = 0;
 
-                    for ( Integer interestedUserId : eventInterestMap.keySet() )
+                    for ( Long interestedUserId : eventInterestMap.keySet() )
                     {
                         if( friendIdList.contains( interestedUserId ) )
                         {
@@ -3181,113 +3582,169 @@ public class DBResource
         return eventResponse;
     }
 
-    public HttpEntity<BasicResponse> getEventsCreatedByUser( int userId )
+    public Event loadEventById( Long eventId, Connection conn ) throws SQLException
     {
-        List<FeedItem> feedItems = new ArrayList<>();
+        Event event = new Event();
+
+        String sqlSb = "SELECT " + EVENT_SELECT +
+                "WHERE e.id = ? ";
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, eventId );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                while ( rs.next() )
+                {
+                    event.load( rs );
+
+                }
+            }
+        }
+
+        return event;
+    }
+
+    public Map<Long, Event> loadEventByIdList( Set<Long> eventIdList, Connection conn ) throws SQLException
+    {
+        Map<Long, Event> eventMap = new HashMap<>();
+
+        if( eventIdList.isEmpty() )
+        {
+            return eventMap;
+        }
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT " + EVENT_SELECT +
+                "WHERE e.id IN ( " );
+
+        String delim = " ";
+
+        for ( Long eventId : eventIdList )
+        {
+            sqlSb.append( delim );
+            sqlSb.append( "?" );
+            delim = ", ";
+        }
+
+        sqlSb.append( " )" );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            for ( Long eventId : eventIdList )
+            {
+                ps.setLong( count++, eventId );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                while ( rs.next() )
+                {
+                    Event event = new Event();
+                    event.load( rs );
+
+                    eventMap.put( event.getId(), event );
+                }
+            }
+        }
+
+        return eventMap;
+    }
+
+    public Map<Long, ConfirmedEvent> loadConfirmedEventByIdList( Set<Long> eventIdList, Connection conn ) throws SQLException
+    {
+        Map<Long, ConfirmedEvent> eventMap = new HashMap<>();
+
+        if( eventIdList.isEmpty() )
+        {
+            return eventMap;
+        }
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT " + CONFIRMED_EVENT_SELECT +
+                "WHERE ce.id IN ( " );
+
+        String delim = " ";
+
+        for ( Long eventId : eventIdList )
+        {
+            sqlSb.append( delim );
+            sqlSb.append( "?" );
+            delim = ", ";
+        }
+
+        sqlSb.append( " )" );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            for ( Long eventId : eventIdList )
+            {
+                ps.setLong( count++, eventId );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                while ( rs.next() )
+                {
+                    ConfirmedEvent event = new ConfirmedEvent();
+                    event.load( rs );
+
+                    eventMap.put( event.getId(), event );
+                }
+            }
+        }
+
+        return eventMap;
+    }
+
+    public HttpEntity<BasicResponse> getEventsForUser( Long userId, String pageKey )
+    {
+        DataListPage<EventFeedItem> dataListPage = new DataListPage<>();
         
         try ( Connection conn = getConnection() )
         {
-            List<Integer> friendIdList = getFriendIdList( userId, conn );
-            UserProfile currUser = getCompleteUserProfileById( userId, conn );
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
 
-            // Load activities created by user_profile
+            Long pageId = null;
+            OffsetDateTime pageTimestampUtc = null;
 
-            String sqlSb = "SELECT " + EVENT_SELECT +
-                    "WHERE e.creator_id = ? ";
-
-            try ( PreparedStatement ps = conn.prepareStatement( sqlSb ) )
+            if( pageKey != null && !pageKey.isEmpty() )
             {
-
-                ps.setFetchSize( 1000 );
-
-                int count = 1;
-                ps.setInt( count++, userId );
-
-                //execute query
-                try ( ResultSet rs = ps.executeQuery() )
-                {
-                    //position result to first
-
-                    while ( rs.next() )
-                    {
-                        int col = 1;
-                        long eventId = rs.getLong( col++ );
-
-                        Map<Integer, EventInterest> eventInterestMap = getEventInterested( eventId, conn );
-
-                        Event event = new Event();
-                        event.load( rs );
-                        event.setInterestedCount( eventInterestMap.size() );
-
-                        FeedItem feedItem = new FeedItem();
-                        feedItem.setEvent( event );
-                        feedItems.add( feedItem );
-                    }
-
-                }
-                catch ( SQLException e )
-                {
-                    e.printStackTrace();
-                }
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageTimestampUtc = OffsetDateTime.parse( list[1] );
             }
 
-            // Load confirmed events created by user_profile
+            List<EventFeedItem> feedItemList = loadEventsForUser( friendIdList, userId, pageId, pageTimestampUtc, 21, conn );
 
-            String confirmedSql = "SELECT " +
-                    CONFIRMED_EVENT_SELECT +
-                    "WHERE ce.creator_id = ? ";
-
-            try ( PreparedStatement ps = conn.prepareStatement( confirmedSql ) )
+            if( feedItemList.size() <= 20 )
             {
-
-                ps.setFetchSize( 1000 );
-
-                int count = 1;
-
-                ps.setInt( count++, userId );
-
-                //execute query
-                try ( ResultSet rs = ps.executeQuery() )
-                {
-                    //position result to first
-
-                    while ( rs.next() )
-                    {
-                        long eventId = rs.getLong( "id" );
-                        FeedItem feedItem = new FeedItem();
-
-                        ConfirmedEvent event = new ConfirmedEvent();
-
-                        Map<Integer, EventInvited> invitedMap = getEventInvited( eventId, conn );
-
-                        event.load( rs );
-                        event.setCreatorDisplayName( currUser.getDisplayName() );
-
-                        feedItem.setConfirmedEvent( event );
-                        feedItem.setParticipatingFriendCount( invitedMap.size() );
-                        feedItem.setInterested( true );
-                        feedItem.setInvited( true );
-                        feedItem.setParticipant( true );
-
-//                        feedItem.getConfirmedEvent().setCreatorDisplayName( "You" );
-                        feedItems.add( feedItem );
-                    }
-
-                }
-                catch ( SQLException e )
-                {
-                    e.printStackTrace();
-                }
+                dataListPage.setItemList( feedItemList );
             }
-            catch ( SQLException e )
+            else
             {
-                e.printStackTrace();
+                EventFeedItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getEvent().getId() + "/" + lastItem.getInterestedTime();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
             }
-            
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -3295,16 +3752,207 @@ public class DBResource
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( feedItems ) );
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
     }
 
-    public HttpEntity<BasicResponse> getPopularEventsByTag( int userId, String tag )
+    public HttpEntity<BasicResponse> getConfirmedEventsForUser( Long userId, String pageKey )
+    {
+        DataListPage<ConfirmedEventFeedItem> dataListPage = new DataListPage<>();
+
+        try ( Connection conn = getConnection() )
+        {
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
+
+            Long pageId = null;
+            OffsetDateTime pageTimestampUtc = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageTimestampUtc = OffsetDateTime.parse( list[1] );
+            }
+
+            List<ConfirmedEventFeedItem> feedItemList = loadConfirmedEventsForUser( friendIdList, userId, pageId, pageTimestampUtc, 21, conn );
+
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                ConfirmedEventFeedItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getEvent().getId() + "/" + lastItem.getCreatedTime();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
+            }
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
+    }
+
+    public List<EventFeedItem> loadEventsForUser( Set<Long> friendIdList, Long userId, Long pageId, OffsetDateTime pageLastTimestampUtc, int limit, Connection conn ) throws SQLException
+    {
+        List<EventFeedItem> feedItems = new ArrayList<>();
+
+        final String nonAggregateColumns = "e.id, e.description ";
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT " );
+        sqlSb.append( nonAggregateColumns + ", ei.created_time " );
+        sqlSb.append( "FROM event_interested ei, event e  " );
+        sqlSb.append( "WHERE ei.user_id = ? " );
+        if( pageId != null && pageLastTimestampUtc != null )
+        {
+            sqlSb.append( "AND ( ei.created_time, ei.event_id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "AND ei.event_id = e.id " );
+        sqlSb.append( "ORDER BY ei.created_time DESC, ei.event_id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int count = 1;
+
+            ps.setLong( count++, userId );
+
+            if( pageId != null && pageLastTimestampUtc != null )
+            {
+                ps.setObject( count++, pageLastTimestampUtc );
+                ps.setLong( count++, pageId );
+            }
+
+            ps.setLong( count++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+
+                    long eventId = rs.getLong( col++ );
+                    String description = rs.getString( col++ );
+                    OffsetDateTime interestedTime = rs.getObject( col++, OffsetDateTime.class );
+
+                    Map<Long, EventInterest> eventInterestMap = loadEventInterested( eventId, conn );
+
+                    Event event = new Event();
+                    event.setId( eventId );
+                    event.setDescription( description );
+                    event.setInterestedCount( eventInterestMap.size() );
+
+                    int interestedFriendCount = ( int ) eventInterestMap.keySet().stream().filter( friendIdList::contains ).count();
+
+                    EventFeedItem feedItem = new EventFeedItem();
+                    feedItem.setEvent( event );
+                    feedItem.setInterestedFriendCount( interestedFriendCount );
+                    feedItem.setInterestedTime( interestedTime );
+
+                    feedItems.add( feedItem );
+                }
+
+            }
+        }
+
+        return feedItems;
+    }
+
+    public List<ConfirmedEventFeedItem> loadConfirmedEventsForUser( Set<Long> friendIdList, Long userId, Long pageId, OffsetDateTime pageLastTimestampUtc, int limit, Connection conn ) throws SQLException
+    {
+        List<ConfirmedEventFeedItem> happeningFeedItemList = new ArrayList<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT " );
+        sqlSb.append( CONFIRMED_EVENT_SELECT );
+        sqlSb.append( "WHERE ce.creator_id = ? " );
+        if( pageId != null && pageLastTimestampUtc != null )
+        {
+            sqlSb.append( "AND ( ce.updated_time, ce.id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY ce.updated_time DESC, ce.id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            ps.setLong( count++, userId );
+
+            if( pageId != null && pageLastTimestampUtc != null )
+            {
+                ps.setObject( count++, pageLastTimestampUtc );
+                ps.setLong( count++, pageId );
+            }
+
+            ps.setLong( count++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    long eventId = rs.getLong( col++ );
+
+                    Map<Long, EventInvited> invitedMap = getEventInvited( eventId, conn );
+                    Map<Long, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( eventId, conn );
+                    int activeCount = getEventActiveCount( eventId, conn );
+
+                    boolean isInvited = invitedMap.containsKey( userId );
+                    boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
+                    boolean isParticipating = false;
+                    Set<Long> confirmedParticipantIdList = invitedMap.values().stream().filter( EventInvited::isConfirmed ).map( EventInvited::getUserId ).collect( Collectors.toSet());
+                    Map<Long, BasicProfile> confirmedParticipantMap = getUserProfileByList( confirmedParticipantIdList, conn );
+
+                    if ( isInvited )
+                    {
+                        isParticipating = invitedMap.get( userId ).isConfirmed();
+                    }
+
+                    ConfirmedEvent event = new ConfirmedEvent();
+                    event.load( rs );
+                    event.setParticipantCount( confirmedParticipantIdList.size() );
+
+                    ConfirmedEventFeedItem happeningFeedItem = new ConfirmedEventFeedItem();
+                    happeningFeedItem.setEvent( event );
+                    happeningFeedItem.setActiveCount( activeCount );
+                    happeningFeedItem.setInvited( isInvited );
+                    happeningFeedItem.setParticipant( isParticipating );
+                    happeningFeedItem.setCreatorFriend( friendIdList.contains( event.getCreatorId() ) );
+                    happeningFeedItem.setJoinRequested( isJoinRequested );
+                    happeningFeedItem.setCreatedTime( event.getCreatedTime() );
+                    happeningFeedItem.setConfirmedParticipantList( new ArrayList<>( confirmedParticipantMap.values() ) );
+
+                    happeningFeedItemList.add( happeningFeedItem );
+                }
+
+            }
+        }
+
+        return happeningFeedItemList;
+    }
+
+    public HttpEntity<BasicResponse> getPopularEventsByTag( Long userId, String tag )
     {
         List<FeedItem> feedItems = new ArrayList<>();
 
         try ( Connection conn = getConnection() )
         {
-            List<Integer> friendIdList = getFriendIdList( userId, conn );
+            Set<Long> friendIdList = getFriendIdList( userId, conn );
 
             List<FeedItem> eventList = loadPopularEvents( userId, tag, conn, friendIdList );
             List<FeedItem> confirmedEventList = loadPopularConfirmedEvents( userId, tag, conn, friendIdList );
@@ -3313,12 +3961,12 @@ public class DBResource
             feedItems.addAll( confirmedEventList );
 
             // Sort by latest timestamp
-            feedItems.sort( ( o1, o2 ) -> {
-                Event firstEvent = o1.getEvent() != null ? o1.getEvent() : o1.getConfirmedEvent();
-                Event secondEvent = o2.getEvent() != null ? o2.getEvent() : o2.getConfirmedEvent();
-
-                return Long.compare( secondEvent.getCreatedTime(), firstEvent.getCreatedTime() );
-            } );
+//            feedItems.sort( ( o1, o2 ) -> {
+//                Event firstEvent = o1.getEvent() != null ? o1.getEvent() : o1.getConfirmedEvent();
+//                Event secondEvent = o2.getEvent() != null ? o2.getEvent() : o2.getConfirmedEvent();
+//
+//                return Long.compare( secondEvent.getCreatedTime(), firstEvent.getCreatedTime() );
+//            } );
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -3329,7 +3977,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( feedItems ) );
     }
 
-    private List<FeedItem> loadPopularEvents( int userId, String tag, Connection conn, List<Integer> friendIdList )
+    private List<FeedItem> loadPopularEvents( Long userId, String tag, Connection conn, Set<Long> friendIdList ) throws SQLException
     {
         List<FeedItem> feedItems = new ArrayList<>();
         // Load events
@@ -3345,7 +3993,7 @@ public class DBResource
             sqlSb.append(  "            e.visibility_preference = " + PrivacyPreference.VISIBILITY_FRIENDS_OF_FRIENDS + " AND e.id IN ( SELECT event_id FROM event_interested ei WHERE ei.user_id IN ( " );
 
             String delim = " ";
-            for ( int friendId : friendIdList )
+            for ( Long friendId : friendIdList )
             {
                 sqlSb.append( delim );
                 sqlSb.append( "?" );
@@ -3357,7 +4005,7 @@ public class DBResource
             sqlSb.append( "     OR ( e.visibility_preference = " + PrivacyPreference.VISIBILITY_FRIENDS + " AND e.creator_id IN ( " );
 
             delim = " ";
-            for ( int friendId : friendIdList )
+            for ( Long friendId : friendIdList )
             {
                 sqlSb.append( delim );
                 sqlSb.append( "?" );
@@ -3381,15 +4029,15 @@ public class DBResource
             if ( !friendIdList.isEmpty() )
             {
                 // For VISIBILITY_FRIENDS_OF_FRIENDS
-                for ( int friendId : friendIdList )
+                for ( Long friendId : friendIdList )
                 {
-                    ps.setInt( count++, friendId );
+                    ps.setLong( count++, friendId );
                 }
 
                 // For VISIBILITY_FRIENDS
-                for ( int friendId : friendIdList )
+                for ( Long friendId : friendIdList )
                 {
-                    ps.setInt( count++, friendId );
+                    ps.setLong( count++, friendId );
                 }
             }
 
@@ -3411,9 +4059,9 @@ public class DBResource
 //                        boolean isConfirmed = rs.getBoolean( col++ );
 
 
-                    Map<Integer, EventInterest> eventInterestedMap = getEventInterested( eventId, conn );
+                    Map<Long, EventInterest> eventInterestedMap = loadEventInterested( eventId, conn );
 
-                    List<Integer> interestedUserIdList = new ArrayList<>( eventInterestedMap.keySet() );
+                    Set<Long> interestedUserIdList = eventInterestedMap.keySet();
                     FeedItem feedItem = new FeedItem();
 
                     Event event = new Event();
@@ -3426,7 +4074,7 @@ public class DBResource
                     boolean isInterested = eventInterestedMap.containsKey( userId );
                     boolean isFriendInterested = false;
 
-                    for ( Integer friendId : friendIdList )
+                    for ( Long friendId : friendIdList )
                     {
                         if ( eventInterestedMap.containsKey( friendId ) )
                         {
@@ -3444,20 +4092,12 @@ public class DBResource
                 }
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
         }
 
         return feedItems;
     }
 
-    private List<FeedItem> loadPopularConfirmedEvents( int userId, String tag, Connection conn, List<Integer> friendIdList )
+    private List<FeedItem> loadPopularConfirmedEvents( Long userId, String tag, Connection conn, Set<Long> friendIdList )
     {
         List<FeedItem> feedItems = new ArrayList<>();
         // Load confirmed events
@@ -3488,7 +4128,7 @@ public class DBResource
 
                     ConfirmedEvent event = new ConfirmedEvent();
 
-                    Map<Integer, EventInvited> invitedMap = getEventInvited( eventId, conn );
+                    Map<Long, EventInvited> invitedMap = getEventInvited( eventId, conn );
 
                     boolean isInvited = invitedMap.containsKey( userId );
                     boolean isParticipant = false;
@@ -3773,7 +4413,7 @@ public class DBResource
         return activeFriendMap;
     }
 
-    public List<PopularNearbyFeedItem> loadPopularNearbyFeedItemList( List<Long> confirmedEventIdList, List<Integer> friendIdList, Map<Long, List<CurrentActivity>> activeEventMap, int userId, Connection conn )
+    public List<PopularNearbyFeedItem> loadPopularNearbyFeedItemList( List<Long> confirmedEventIdList, Set<Long> friendIdList, Map<Long, List<CurrentActivity>> activeEventMap, Long userId, Connection conn )
     {
         List<PopularNearbyFeedItem> popularNearbyFeedItems = new ArrayList<>();
 
@@ -3817,9 +4457,9 @@ public class DBResource
                     ConfirmedEvent confirmedEvent = new ConfirmedEvent();
                     confirmedEvent.load( rs );
 
-                    Map<Integer, EventInvited> invitedMap = getEventInvited( confirmedEvent.getId(), conn );
-                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( confirmedEvent.getId(), conn );
-                    Set<Integer> confirmedIdSet = invitedMap.values().stream().filter( EventInvited::isConfirmed ).map( EventInvited::getUserId ).collect( Collectors.toSet() );
+                    Map<Long, EventInvited> invitedMap = getEventInvited( confirmedEvent.getId(), conn );
+                    Map<Long, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( confirmedEvent.getId(), conn );
+                    Set<Long> confirmedIdSet = invitedMap.values().stream().filter( EventInvited::isConfirmed ).map( EventInvited::getUserId ).collect( Collectors.toSet() );
 
                     boolean isInvited = invitedMap.containsKey( userId );
                     boolean isParticipating = confirmedIdSet.contains( userId );
@@ -3831,7 +4471,7 @@ public class DBResource
 
                     if ( confirmedEvent.isPublic() || isInvited )
                     {
-                        UserProfile creatorUser = getUserProfileById( confirmedEvent.getCreatorId(), conn );
+                        BasicProfile creatorUser = getUserProfileById( confirmedEvent.getCreatorId(), conn );
                         confirmedEvent.setCreatorDisplayName( creatorUser.getDisplayName() );
 
                     }
@@ -3868,94 +4508,35 @@ public class DBResource
         return popularNearbyFeedItems;
     }
 
-    public Map<Long, List<CurrentActivity>> loadCurrentActivityByFriendList( List<Integer> friendIdList, int userId, Connection conn )
+    public List<HappeningFeedItem> loadHappeningFeedItemList( Set<Long> friendIdList, Long userId, Long pageId, OffsetDateTime pageLastTimestampUtc, int limit, Connection conn ) throws SQLException
     {
-        Map<Long, List<CurrentActivity>> activeFriendMap = new HashMap<>();
+        List<HappeningFeedItem> happeningFeedItemList = new ArrayList<>();
 
-        StringBuilder sqlSb = new StringBuilder( "SELECT " +
-                "ca.user_id, " +
-                "ca.event_id, " +
-                "ca.updated_time " +
-                "FROM current_activity ca " +
-                "WHERE " +
-                "ca.event_id IS NOT NULL " +
-                "AND ca.user_id IN ( " );
-
-        String delim = " ";
-
-        for ( int eventUserId : friendIdList )
-        {
-            sqlSb.append( delim );
-            sqlSb.append( "?" );
-            delim = ", ";
-        }
-
-        sqlSb.append( " ) " );
-
-        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
-        {
-
-            ps.setFetchSize( 1000 );
-
-            int count = 1;
-
-            for ( int eventUserId : friendIdList )
-            {
-                ps.setInt( count++, eventUserId );
-            }
-
-            //execute query
-            try ( ResultSet rs = ps.executeQuery() )
-            {
-                //position result to first
-
-                while ( rs.next() )
-                {
-                    CurrentActivity currentActivity = new CurrentActivity();
-                    currentActivity.load( rs );
-
-                    List<CurrentActivity> currentActivityList = new ArrayList<>();
-                    currentActivityList.add( currentActivity );
-
-                    activeFriendMap.merge( currentActivity.getEventId(), currentActivityList, ( oldList, newList ) -> {
-                        oldList.addAll( newList );
-                        return oldList;
-                    } );
-
-                }
-
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
-        return activeFriendMap;
-    }
-
-    public List<UpcomingFeedItem> loadUpcomingEvents( List<Integer> friendIdList, int userId, Connection conn )
-    {
-        List<UpcomingFeedItem> feedItems = new ArrayList<>();
+        final String nonAggregateColumns = "e.id, e.description, e.creator_id, e.is_public";
 
         StringBuilder sqlSb = new StringBuilder( "SELECT " );
-        sqlSb.append( EVENT_SELECT );
-        sqlSb.append( "WHERE " );
-        sqlSb.append( "e.id IN ( SELECT event_id FROM event_interested ei WHERE ei.user_id IN ( " );
+        sqlSb.append( nonAggregateColumns + ", MIN( ca.updated_time ) start_time  " );
+        sqlSb.append( "FROM current_activity ca, confirmed_event e  " );
+        sqlSb.append( "WHERE ca.event_id IS NOT NULL " );
+        sqlSb.append( "AND ca.user_id IN ( " );
 
         String delim = " ";
-        for ( int friendId : friendIdList )
+        for ( Long friendId : friendIdList )
         {
             sqlSb.append( delim );
             sqlSb.append( "?" );
             delim = ", ";
         }
 
-        sqlSb.append( "         ) )" ); //Close IN and IN
+        sqlSb.append( " ) " ); //Close IN
+        sqlSb.append( "AND e.id = ca.event_id  " );
+        sqlSb.append( "GROUP BY " + nonAggregateColumns + " " );
+        if( pageId != null && pageLastTimestampUtc != null )
+        {
+            sqlSb.append( "HAVING ( MIN( ca.created_time ), e.id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY start_time DESC, e.id DESC " );
+        sqlSb.append( "LIMIT ? " );
 
         try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
         {
@@ -3964,10 +4545,18 @@ public class DBResource
 
             int count = 1;
 
-            for ( int friendId : friendIdList )
+            for ( Long friendId : friendIdList )
             {
-                ps.setInt( count++, friendId );
+                ps.setLong( count++, friendId );
             }
+
+            if( pageId != null && pageLastTimestampUtc != null )
+            {
+                ps.setObject( count++, pageLastTimestampUtc );
+                ps.setLong( count++, pageId );
+            }
+
+            ps.setLong( count++, limit );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -3978,7 +4567,116 @@ public class DBResource
                 {
                     int col = 1;
 
-                        long eventId = rs.getLong( col++ );
+                    long eventId = rs.getLong( col++ );
+                    String description = rs.getString( col++ );
+                    Long creatorId = rs.getLong( col++ );
+                    boolean isPublic = rs.getBoolean( col++ );
+                    OffsetDateTime startTime = rs.getObject( col++, OffsetDateTime.class );
+
+                    Map<Long, EventInvited> invitedMap = getEventInvited( eventId, conn );
+                    Map<Long, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( eventId, conn );
+                    int activeCount = getEventActiveCount( eventId, conn );
+
+                    boolean isInvited = invitedMap.containsKey( userId );
+                    boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
+                    boolean isParticipating = false;
+                    Set<Long> confirmedParticipantIdList = invitedMap.values().stream().filter( EventInvited::isConfirmed ).map( EventInvited::getUserId ).collect( Collectors.toSet());
+                    Map<Long, BasicProfile> confirmedParticipantMap = getUserProfileByList( confirmedParticipantIdList, conn );
+
+                    if ( isInvited )
+                    {
+                        isParticipating = invitedMap.get( userId ).isConfirmed();
+                    }
+
+                    ConfirmedEvent event = new ConfirmedEvent();
+                    event.setId( eventId );
+                    event.setCreatorId( creatorId );
+                    event.setDescription( description );
+                    event.setPublic( isPublic );
+                    event.setParticipantCount( confirmedParticipantIdList.size() );
+
+                    HappeningFeedItem happeningFeedItem = new HappeningFeedItem();
+                    happeningFeedItem.setEvent( event );
+                    happeningFeedItem.setActiveCount(activeCount );
+                    happeningFeedItem.setInvited( isInvited );
+                    happeningFeedItem.setParticipant( isParticipating );
+                    happeningFeedItem.setCreatorFriend( friendIdList.contains( creatorId ) );
+                    happeningFeedItem.setJoinRequested( isJoinRequested );
+                    happeningFeedItem.setStartTime( startTime );
+                    happeningFeedItem.setConfirmedParticipantList( new ArrayList<>( confirmedParticipantMap.values() ) );
+
+                    happeningFeedItemList.add( happeningFeedItem );
+                }
+
+            }
+        }
+
+        return happeningFeedItemList;
+    }
+
+    public List<UpcomingFeedItem> loadUpcomingEvents( Set<Long> friendIdList, Long userId, Long pageId, OffsetDateTime pageLastTimestampUtc, int limit, Connection conn )
+    {
+        List<UpcomingFeedItem> feedItems = new ArrayList<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT " );
+        sqlSb.append(
+                "e.id, " +
+                "e.description, " +
+                "MIN( ei.created_time ) first_interested_time  "
+        );
+        sqlSb.append( "FROM event_interested ei, event e  " );
+        sqlSb.append( "WHERE ei.user_id IN ( " );
+
+        String delim = " ";
+        for ( Long friendId : friendIdList )
+        {
+            sqlSb.append( delim );
+            sqlSb.append( "?" );
+            delim = ", ";
+        }
+
+        sqlSb.append( " ) " ); //Close IN
+        sqlSb.append( "AND e.id = ei.event_id  " );
+        sqlSb.append( "GROUP BY e.id, e.description  " );
+        if( pageId != null && pageLastTimestampUtc != null )
+        {
+            sqlSb.append( "HAVING ( MIN( ei.created_time ), e.id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY first_interested_time DESC, e.id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int count = 1;
+
+            for ( Long friendId : friendIdList )
+            {
+                ps.setLong( count++, friendId );
+            }
+
+            if( pageId != null && pageLastTimestampUtc != null )
+            {
+                ps.setObject( count++, pageLastTimestampUtc );
+                ps.setLong( count++, pageId );
+            }
+
+            ps.setLong( count++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+
+                    long eventId = rs.getLong( col++ );
+                    String description = rs.getString( col++ );
+                    OffsetDateTime firstInterestedTime = rs.getObject( col++, OffsetDateTime.class );
 //                        String enUserId = rs.getString( col++ );
 //                        String need = rs.getString( col++ );
 //                        Date startDate = rs.getDate( col++ );
@@ -3988,22 +4686,24 @@ public class DBResource
 
                     UpcomingFeedItem feedItem = new UpcomingFeedItem();
 
-                    Map<Integer, EventInterest> eventInterestMap = getEventInterested( eventId, conn );
+                    Map<Long, EventInterest> eventInterestMap = loadEventInterested( eventId, conn );
 
                     Event event = new Event();
-                    event.load( rs );
+                    event.setId( eventId );
+                    event.setDescription( description );
                     event.setInterestedCount( eventInterestMap.size() );
 
                     boolean isInterested = eventInterestMap.containsKey( userId );
-                    boolean isCreatorFriend = friendIdList.stream().anyMatch( e -> e == event.getCreatorId() );
-                    boolean isFriendInterested = friendIdList.stream().anyMatch( eventInterestMap::containsKey );
+//                    boolean isCreatorFriend = friendIdList.stream().anyMatch( e -> e == event.getCreatorId() );
+//                    boolean isFriendInterested = friendIdList.stream().anyMatch( eventInterestMap::containsKey );
                     int interestedFriendCount = ( int ) eventInterestMap.keySet().stream().filter( friendIdList::contains ).count();
 
                     feedItem.setEvent( event );
                     feedItem.setInterestedFriendCount( interestedFriendCount );
                     feedItem.setInterested( isInterested );
-                    feedItem.setCreatorFriend( isCreatorFriend );
-                    feedItem.setFriendInterested( isFriendInterested );
+//                    feedItem.setCreatorFriend( isCreatorFriend );
+//                    feedItem.setFriendInterested( isFriendInterested );
+                    feedItem.setFirstInterestedTime( firstInterestedTime );
 
                     feedItems.add( feedItem );
                 }
@@ -4022,7 +4722,7 @@ public class DBResource
         return feedItems;
     }
 
-    public List<UpcomingFeedItem> loadUpcomingConfirmedEvents( List<Integer> friendIdList, int userId, Connection conn )
+    public List<UpcomingFeedItem> loadUpcomingConfirmedEvents( List<Integer> friendIdList, long userId, Connection conn )
     {
         List<UpcomingFeedItem> feedItemList = new ArrayList<>();
 
@@ -4089,8 +4789,8 @@ public class DBResource
 //                        String dateScope = rs.getString( col++ );
                     boolean isPublic = rs.getBoolean( "is_public" );
 
-                    Map<Integer, EventInvited> invitedMap = getEventInvited( eventId, conn );
-                    Map<Integer, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( eventId, conn );
+                    Map<Long, EventInvited> invitedMap = getEventInvited( eventId, conn );
+                    Map<Long, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( eventId, conn );
 
                     boolean isInvited = invitedMap.containsKey( userId );
                     boolean isParticipating = false;
@@ -4163,9 +4863,9 @@ public class DBResource
         }
     }
 
-    public List<Integer> getFriendIdList( int userId, Connection conn )
+    public Set<Long> getFriendIdList( Long userId, Connection conn ) throws SQLException
     {
-        List<Integer> friendUserIdList = new ArrayList<>();
+        Set<Long> friendUserIdList = new HashSet<>();
 
         String friendSql = "SELECT f.friend_id FROM friend f WHERE f.user_id = ?";
 
@@ -4174,7 +4874,7 @@ public class DBResource
 
             ps.setFetchSize( 1000 );
 
-            ps.setInt( 1, userId );
+            ps.setLong( 1, userId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -4185,28 +4885,20 @@ public class DBResource
                 {
                     int count = 1;
 
-                    int friendUserId = rs.getInt( count++ );
+                    Long friendUserId = rs.getLong( count++ );
 
                     friendUserIdList.add( friendUserId );
                 }
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
         }
 
         return friendUserIdList;
     }
 
-    public HttpEntity<BasicResponse> getCompleteUserProfileById( int userId )
+    public HttpEntity<BasicResponse> getCompleteUserProfileById( Long userId )
     {
-        UserProfile user_profile = new UserProfile(-1, null, null, null);
+        UserProfile user_profile;
         try ( Connection conn = getConnection() )
         {
             user_profile = getCompleteUserProfileById( userId, conn );
@@ -4220,22 +4912,11 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( user_profile ) );
     }
 
-    public UserProfile getCompleteUserProfileById( int userId, Connection conn ) throws SQLException
+    public UserProfile getCompleteUserProfileById( Long userId, Connection conn ) throws SQLException
     {
         UserProfile userProfile = null;
 
-        String sql = "SELECT " +
-                "u.id, " +
-                "u.facebook_id, " +
-                "u.firebase_uid, " +
-                "u.name, " +
-                "u.email, " +
-                "u.latitude, " +
-                "u.longitude, " +
-                "u.high_school_id, " +
-                "u.university_id, " +
-                "u.work_place_id " +
-                "FROM user_profile u " +
+        String sql = COMPLETE_USER_PROFILE_SELECT +
                 "WHERE u.id = ? ";
 
         try ( PreparedStatement ps = conn.prepareStatement( sql  ) )
@@ -4243,9 +4924,9 @@ public class DBResource
 
             ps.setFetchSize( 1000 );
 
-            int pCount = 1;
+            int count = 1;
 
-            ps.setInt( pCount++, userId );
+            ps.setLong( count++, userId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -4261,18 +4942,38 @@ public class DBResource
             }
         }
 
-
         return userProfile;
     }
 
-    public HttpEntity<BasicResponse> getInterestedFriendList( long eventId, int userId )
+    public HttpEntity<BasicResponse> getFriendList( Long userId, String pageKey )
     {
-        List<InterestedFriend> interestedFriendList;
-        
+        DataListPage<FriendFeedItem> dataListPage = new DataListPage<>();
+
         try ( Connection conn = getConnection() )
         {
-            Map<Integer, InterestedFriend> friendMap = getInterestedFriendList( eventId, userId, conn );
-            interestedFriendList = new ArrayList<>(friendMap.values());
+            Long pageId = null;
+            String pageName = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageName = list[1];
+            }
+
+            List<FriendFeedItem> feedItemList = loadFriendPage( userId, pageId, pageName, 21, conn );
+
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                FriendFeedItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getUser().getUserId().toString() + "/" + lastItem.getUser().getDisplayName();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
+            }
         }
         catch ( SQLException | URISyntaxException e )
         {
@@ -4280,125 +4981,178 @@ public class DBResource
             return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return new HttpEntity<>( new BasicResponse( interestedFriendList ) );
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
     }
 
-    public Map<Integer, InterestedFriend> getInterestedFriendList( long eventId, int userId, Connection conn ) throws SQLException
+    public HttpEntity<BasicResponse> getInterestedFriendList( long eventId, Long userId, String pageKey )
     {
-        Map<Integer, InterestedFriend> interestedFriendMap = new HashMap<>();
-
-        List<Integer> friendIdList = getFriendIdList( userId, conn );
-        Map<Integer, EventInterest> eventInterestMap = getEventInterested( eventId, conn );
-
-        // Get interested friend ids
-        List<Integer> interestedFriendIdList = new ArrayList<>();
-
-        for ( Integer interestedUserId : eventInterestMap.keySet() )
+        DataListPage<InterestedFriendFeedItem> dataListPage = new DataListPage<>();
+        
+        try ( Connection conn = getConnection() )
         {
-            if ( friendIdList.contains( interestedUserId ) || interestedUserId == userId )
+            Long pageId = null;
+            OffsetDateTime pageTimestampUtc = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
             {
-                interestedFriendIdList.add( interestedUserId );
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageTimestampUtc = OffsetDateTime.parse( list[1] );
+            }
+
+            List<InterestedFriendFeedItem> feedItemList = loadInterestedFriendPage( eventId, userId, pageId, pageTimestampUtc, 21, conn );
+
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                InterestedFriendFeedItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getUser().getUserId() + "/" + lastItem.getCreatedTime();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
             }
         }
-
-        // Get interested friend details
-        Map<Integer, UserProfile> interestedUserProfileMap = getUserProfilesWithDetails( interestedFriendIdList, conn );
-        Map<Integer, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( interestedFriendIdList, conn );
-
-        // Get friend visibility matrix for current user_profile
-        Map<Integer, List<Integer>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
-        List<Integer> requestedFriendList = getVisibilityRequestedByUser( eventId, userId, conn );
-
-        //Load current user_profile details
-        UserProfile currUser = getCompleteUserProfileById( userId, conn );
-        List<CurrentActivity> currUserRecentCurrentActivityHistory = userActivityHistoryMap.containsKey( userId ) ? userActivityHistoryMap.get( userId ) : new ArrayList<>();
-
-        for ( Integer interestedUserId : interestedUserProfileMap.keySet() )
+        catch ( SQLException | URISyntaxException e )
         {
-            UserProfile friendProfile = interestedUserProfileMap.get( interestedUserId );
-            EventInterest eventInterest = eventInterestMap.get( interestedUserId );
-            List<CurrentActivity> recentCurrentActivityList = userActivityHistoryMap.get( interestedUserId );
-
-            String distance = null;
-            String relationship = null;
-
-            if( interestedUserId != userId )
-            {
-                double distanceInMeters = LocationHelper.distance( currUser.getLatitude(), friendProfile.getLatitude(), currUser.getLongitude(), friendProfile.getLongitude(), 0.0, 0.0 );
-                System.out.println( friendProfile.getDisplayName() + " : " + distanceInMeters );
-
-                if ( distanceInMeters <= 10000 )
-                {
-                    distance = "nearby";
-                }
-                else
-                {
-                    distance = "far away";
-                }
-
-                // Remove identifying details from non-visible friends
-
-                List<Integer> visibleToUserList = new ArrayList<>();
-
-                if ( visibilityMap.containsKey( interestedUserId ) )
-                {
-                    visibleToUserList = visibilityMap.get( interestedUserId );
-                }
-
-                if ( visibleToUserList.isEmpty() || !visibleToUserList.contains( userId ) )
-                {
-                    friendProfile.setDisplayName( null );
-                }
-
-                //Determine relationship
-                boolean isRecentlyMet = false;
-                for ( CurrentActivity currentActivity : recentCurrentActivityList )
-                {
-                    for ( CurrentActivity currUserCurrentActivity : currUserRecentCurrentActivityHistory )
-                    {
-                        if ( currentActivity.getEventId() == currUserCurrentActivity.getEventId() )
-                        {
-                            isRecentlyMet = true;
-                            break;
-                        }
-                    }
-                }
-
-                if ( isRecentlyMet )
-                {
-                    relationship = "Interacted recently";
-                }
-            }
-
-            InterestedFriend interestedFriend = new InterestedFriend();
-            interestedFriend.setUser( friendProfile );
-            interestedFriend.setDescription( eventInterest.getDescription() );
-            interestedFriend.setDistance( distance );
-            interestedFriend.setRelationship( relationship );
-
-            if ( requestedFriendList.contains( friendProfile.getUserId() ) )
-            {
-                interestedFriend.setVisibilityRequested( true );
-            }
-
-            interestedFriendMap.put( interestedUserId, interestedFriend );
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
         }
 
-        return interestedFriendMap;
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
     }
 
-    public UserProfile getUserProfileById( int userId, Connection conn )
+    public HttpEntity<BasicResponse> getInviteFriendPage( Long confirmedEventId, long eventId, Long userId, String pageKey )
     {
-        UserProfile userProfile = null;
+        DataListPage<InviteFriendPageItem> dataListPage = new DataListPage<>();
 
-        try ( PreparedStatement ps = conn.prepareStatement( "SELECT u.id, u.name FROM user_profile u WHERE u.id = ?" ) )
+        try ( Connection conn = getConnection() )
+        {
+            Long pageId = null;
+            OffsetDateTime pageTimestampUtc = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageTimestampUtc = OffsetDateTime.parse( list[1] );
+            }
+
+            List<InviteFriendPageItem> feedItemList = loadInviteFriendPage( confirmedEventId, eventId, userId, pageId, pageTimestampUtc, 21, conn );
+
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                InviteFriendPageItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getUser().getUserId() + "/" + lastItem.getCreatedTime();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
+            }
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
+    }
+
+    public HttpEntity<BasicResponse> getInvitedList( long eventId, Long userId, String pageKey )
+    {
+        DataListPage<InvitedUser> dataListPage = new DataListPage<>();
+
+        try ( Connection conn = getConnection() )
+        {
+            Boolean pageId = null;
+            Long pageUserId = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                pageId = Boolean.parseBoolean( list[0] );
+                pageUserId = Long.parseLong( list[1] );
+            }
+
+            List<InvitedUser> feedItemList = loadInvitedPage( eventId, userId, pageId, pageUserId, 21, conn );
+
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                InvitedUser lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.isConfirmed() + "/" + lastItem.getUser().getUserId();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
+            }
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
+    }
+
+    public HttpEntity<BasicResponse> getFriendActivityList( Long userId, String pageKey )
+    {
+        DataListPage<ActivityHistoryFeedItem> dataListPage = new DataListPage<>();
+
+        try ( Connection conn = getConnection() )
+        {
+            Long pageId = null;
+            OffsetDateTime pageTimestampUtc = null;
+
+            if( pageKey != null && !pageKey.isEmpty() )
+            {
+                String[] list = pageKey.split( "/" );
+                pageId = Long.parseLong( list[0] );
+                pageTimestampUtc = OffsetDateTime.parse( list[1] );
+            }
+
+            List<ActivityHistoryFeedItem> feedItemList = loadFriendActivityPage( userId, pageId, pageTimestampUtc, 21, conn );
+
+            if( feedItemList.size() <= 20 )
+            {
+                dataListPage.setItemList( feedItemList );
+            }
+            else
+            {
+                ActivityHistoryFeedItem lastItem = feedItemList.get( feedItemList.size() - 2 );
+                String nextPageKey = lastItem.getEvent().getId() + "/" + lastItem.getActiveTime();
+                dataListPage.setNextPageKey( nextPageKey );
+                dataListPage.setItemList( feedItemList.subList( 0, 20 ) );
+            }
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( dataListPage ) );
+    }
+
+    public BasicProfile getUserProfileById( Long userId, Connection conn )
+    {
+        BasicProfile userProfile = null;
+
+        try ( PreparedStatement ps = conn.prepareStatement( PARTIAL_USER_PROFILE_SELECT + " WHERE u.id = ?" ) )
         {
 
             ps.setFetchSize( 1000 );
 
-            int pCount = 1;
+            int count = 1;
 
-            ps.setInt( pCount++, userId );
+            ps.setLong( count++, userId );
+
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -4407,7 +5161,7 @@ public class DBResource
 
                 while ( rs.next() )
                 {
-                    userProfile = new UserProfile();
+                    userProfile = new BasicProfile();
                     userProfile.loadFromResultSet( rs );
                 }
 
@@ -4425,20 +5179,20 @@ public class DBResource
         return userProfile;
     }
 
-    public Map<Integer, UserProfile> getUserProfileByList( List<Integer> userIdList, Connection conn )
+    public Map<Long, BasicProfile> getUserProfileByList( Set<Long> userIdList, Connection conn ) throws SQLException
     {
-        Map<Integer, UserProfile> userProfileList = new HashMap<>();
+        Map<Long, BasicProfile> userProfileList = new HashMap<>();
 
         if ( userIdList.isEmpty() )
         {
             return userProfileList;
         }
 
-        StringBuilder friendSql = new StringBuilder( "SELECT u.id, u.name FROM user_profile u WHERE u.id IN ( " );
+        StringBuilder friendSql = new StringBuilder( PARTIAL_USER_PROFILE_SELECT + " WHERE u.id IN ( " );
 
         String delim = " ";
 
-        for ( int participantUserId : userIdList )
+        for ( Long participantUserId : userIdList )
         {
             friendSql.append( delim );
             friendSql.append( "?" );
@@ -4454,9 +5208,9 @@ public class DBResource
 
             int pCount = 1;
 
-            for ( int participantUserId : userIdList )
+            for ( Long userId : userIdList )
             {
-                ps.setInt( pCount++, participantUserId );
+                ps.setLong( pCount++, userId );
             }
 
             //execute query
@@ -4466,53 +5220,33 @@ public class DBResource
 
                 while ( rs.next() )
                 {
-                    UserProfile participantUserProfile = new UserProfile();
+                    BasicProfile participantUserProfile = new BasicProfile();
                     participantUserProfile.loadFromResultSet( rs );
 
                     userProfileList.put( participantUserProfile.getUserId(), participantUserProfile );
                 }
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
         }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
 
         return userProfileList;
     }
 
-    public Map<Integer, UserProfile> getUserProfilesWithDetails( List<Integer> userIdList, Connection conn )
+    public Map<Long, UserProfile> getUserProfilesWithDetails( Set<Long> userIdList, Connection conn ) throws SQLException
     {
-        Map<Integer, UserProfile> userProfileList = new HashMap<>();
+        Map<Long, UserProfile> userProfileList = new HashMap<>();
 
         if ( userIdList.isEmpty() )
         {
             return userProfileList;
         }
 
-        StringBuilder friendSql = new StringBuilder(  "SELECT " +
-                "u.id, " +
-                "u.facebook_id, " +
-                "u.firebase_uid, " +
-                "u.name, " +
-                "u.email, " +
-                "u.latitude, " +
-                "u.longitude, " +
-                "u.high_school_id, " +
-                "u.university_id, " +
-                "u.work_place_id " +
-                "FROM user_profile u " +
-                "WHERE u.id IN ( " );
+        StringBuilder friendSql = new StringBuilder(  COMPLETE_USER_PROFILE_SELECT +
+                " WHERE u.id IN ( " );
 
         String delim = " ";
 
-        for ( int participantUserId : userIdList )
+        for ( Long participantUserId : userIdList )
         {
             friendSql.append( delim );
             friendSql.append( "?" );
@@ -4528,9 +5262,9 @@ public class DBResource
 
             int pCount = 1;
 
-            for ( int participantUserId : userIdList )
+            for ( Long participantUserId : userIdList )
             {
-                ps.setInt( pCount++, participantUserId );
+                ps.setLong( pCount++, participantUserId );
             }
 
             //execute query
@@ -4547,16 +5281,7 @@ public class DBResource
                 }
 
             }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
         }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
 
         return userProfileList;
     }
@@ -4627,9 +5352,580 @@ public class DBResource
         return userLocationMap;
     }
 
-    public Map<Integer, EventInterest> getEventInterested( long eventId, Connection conn )
+    public List<FriendFeedItem> loadFriendPage( long userId, Long pageId, String pageName, int limit, Connection conn ) throws SQLException
     {
-        Map<Integer, EventInterest> interestMap = new HashMap<>();
+        List<FriendFeedItem> feedItemList = new ArrayList<>();
+        
+        Map<Long, BasicProfile> basicProfileMap = new LinkedHashMap<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT u.id, u.name " );
+        sqlSb.append( "FROM friend f, user_profile u " );
+        sqlSb.append( "WHERE f.user_id = ? " );
+        sqlSb.append( "AND f.friend_id = u.id " );
+        if( pageId != null && pageName != null )
+        {
+            sqlSb.append( "AND ( u.name, u.id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY u.name DESC, u.id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int pCount = 1;
+            ps.setLong( pCount++, userId );
+
+            if( pageId != null && pageName != null )
+            {
+                ps.setString( pCount++, pageName );
+                ps.setLong( pCount++, pageId );
+            }
+
+            ps.setInt( pCount++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+                while ( rs.next() )
+                {
+                    BasicProfile friendProfile = new BasicProfile();
+                    friendProfile.loadFromResultSet( rs );
+                    
+                    basicProfileMap.put( friendProfile.getUserId(), friendProfile );
+                }
+
+            }
+        }
+
+        Set<Long> friendIdList = basicProfileMap.keySet();
+
+//        Map<Long, CurrentActivity> currentActivityMap = getCurrentActivityByUserIdList( friendIdList, conn );
+//        Map<Long, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( friendIdList, conn );
+//
+//        Map<Long, CurrentActivity> activityMap = new HashMap<>();
+//        for ( Long friendId : userActivityHistoryMap.keySet() )
+//        {
+//            List<CurrentActivity> activityList = userActivityHistoryMap.get( friendId );
+//
+//            if( activityList != null && !activityList.isEmpty() )
+//            {
+//                activityMap.put( friendId, activityList.get( 0 ) );
+//            }
+//        }
+//
+//        Set<Long> eventIdList = new HashSet<>();
+//        eventIdList.addAll( currentActivityMap.values().stream().map( CurrentActivity::getEventId ).filter( Objects::nonNull ).collect( Collectors.toSet()) );
+//        eventIdList.addAll( activityMap.values().stream().map( CurrentActivity::getEventId ).filter( Objects::nonNull ).collect( Collectors.toSet()) );
+//
+//        Map<Long, Event> eventMap = loadEventByIdList( eventIdList, conn );
+
+        for ( Long friendId : friendIdList )
+        {
+            BasicProfile basicProfile = basicProfileMap.get( friendId );
+
+//            CurrentActivity currentActivity = currentActivityMap.get( friendId );
+//            List<CurrentActivity> activityHistory = userActivityHistoryMap.get( friendId );
+//
+//            String activeEvent = null;
+//            String lastActiveEvent = null;
+//
+//            if( currentActivity != null && currentActivity.getEventId() != null )
+//            {
+//                activeEvent = eventMap.get( currentActivity.getEventId() ).getDescription();
+//            }
+//            if( activeEvent == null )
+//            {
+//                if( activityHistory != null && !activityHistory.isEmpty() && activityHistory.get( 0 ).getEventId() != null )
+//                {
+//                    lastActiveEvent = eventMap.get( activityHistory.get( 0 ).getEventId() ).getDescription();
+//                }
+//            }
+
+            FriendFeedItem friendFeedItem = new FriendFeedItem();
+            friendFeedItem.setUser( basicProfile );
+//            friendFeedItem.setActiveEvent( activeEvent );
+//            friendFeedItem.setLastActiveEvent( lastActiveEvent );
+
+            feedItemList.add( friendFeedItem );
+        }
+
+        return feedItemList;
+    }
+
+    public List<InterestedFriendFeedItem> loadInterestedFriendPage( long eventId, long userId, Long pageId, OffsetDateTime pageLastTimestampUtc, int limit, Connection conn ) throws SQLException
+    {
+        List<InterestedFriendFeedItem> feedItemList = new ArrayList<>();
+        Map<Long, EventInterest> interestMap = new LinkedHashMap<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT ei.user_id, ei.description, ei.created_time " );
+        sqlSb.append( "FROM event_interested ei " );
+        sqlSb.append( "WHERE ei.event_id = ? " );
+        sqlSb.append( "AND ei.user_id IN ( SELECT friend_id FROM friend WHERE user_id = ? ) " );
+        sqlSb.append( "OR ei.user_id  = ? " );
+        if( pageId != null && pageLastTimestampUtc != null )
+        {
+            sqlSb.append( "AND ( ei.created_time, ei.user_id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY ei.created_time DESC, ei.user_id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int pCount = 1;
+            ps.setLong( pCount++, eventId );
+            ps.setLong( pCount++, userId );
+            ps.setLong( pCount++, userId );
+
+            if( pageId != null && pageLastTimestampUtc != null )
+            {
+                ps.setObject( pCount++, pageLastTimestampUtc );
+                ps.setLong( pCount++, pageId );
+            }
+
+            ps.setInt( pCount++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    Long interestedUserId = rs.getLong( col++ );
+                    String description = rs.getString( col++ );
+                    OffsetDateTime createdDt = rs.getObject( col++, OffsetDateTime.class );
+
+                    EventInterest eventInterest = new EventInterest( eventId, interestedUserId, description );
+                    eventInterest.setCreatedTime( createdDt );
+
+                    interestMap.put( interestedUserId, eventInterest );
+                }
+
+            }
+        }
+
+        // Get interested friend ids
+        Set<Long> interestedFriendIdList = interestMap.keySet();
+
+        // Get interested friend details
+        Map<Long, BasicProfile> interestedUserProfileMap = getUserProfileByList( interestedFriendIdList, conn );
+        Map<Long, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( interestedFriendIdList, conn );
+
+        // Get friend visibility matrix for current user_profile
+        Map<Long, List<Long>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
+        List<Integer> requestedFriendList = getVisibilityRequestedByUser( eventId, userId, conn );
+
+        //Load current user_profile details
+        UserProfile currUser = getCompleteUserProfileById( userId, conn );
+        List<CurrentActivity> currUserRecentCurrentActivityHistory = userActivityHistoryMap.containsKey( userId ) ? userActivityHistoryMap.get(  userId ) : new ArrayList<>();
+
+        for ( Long interestedFriendId : interestedUserProfileMap.keySet() )
+        {
+            BasicProfile friendProfile = interestedUserProfileMap.get( interestedFriendId );
+            EventInterest eventInterest = interestMap.get( interestedFriendId );
+            List<CurrentActivity> recentCurrentActivityList = userActivityHistoryMap.get( interestedFriendId );
+
+            String relationship = null;
+            boolean isPeekSent = false;
+            boolean isPeekBack = false;
+
+            if( interestedFriendId != userId )
+            {
+                // Remove identifying details from non-visible friends
+
+                List<Long> visibleToFriendList = visibilityMap.containsKey( interestedFriendId ) ? visibilityMap.get( interestedFriendId ) : new ArrayList<>();
+                List<Long> visibleToCurrUserList = visibilityMap.containsKey( userId ) ? visibilityMap.get( userId ) : new ArrayList<>();
+
+                if ( !visibleToCurrUserList.contains( interestedFriendId )  )
+                {
+                    friendProfile.setDisplayName( null );
+                }
+                if ( !visibleToCurrUserList.contains( interestedFriendId ) && visibleToFriendList.contains( userId )  )
+                {
+                    isPeekSent = true;
+                }
+                if ( visibleToCurrUserList.contains( interestedFriendId ) && !visibleToFriendList.contains( userId )  )
+                {
+                    isPeekBack = true;
+                }
+
+                //Determine relationship
+                boolean isRecentlyMet = false;
+                for ( CurrentActivity currentActivity : recentCurrentActivityList )
+                {
+                    for ( CurrentActivity currUserCurrentActivity : currUserRecentCurrentActivityHistory )
+                    {
+                        if ( currentActivity.getEventId() == currUserCurrentActivity.getEventId() )
+                        {
+                            isRecentlyMet = true;
+                            break;
+                        }
+                    }
+                }
+
+                if ( isRecentlyMet )
+                {
+                    relationship = "Interacted recently";
+                }
+            }
+
+            InterestedFriendFeedItem interestedFriendFeedItem = new InterestedFriendFeedItem();
+            interestedFriendFeedItem.setUser( friendProfile );
+            interestedFriendFeedItem.setDescription( eventInterest.getDescription() );
+            interestedFriendFeedItem.setDistance( "nearby" );
+            interestedFriendFeedItem.setRelationship( relationship );
+            interestedFriendFeedItem.setPeekSent( isPeekSent );
+            interestedFriendFeedItem.setPeekBack( isPeekBack );
+            interestedFriendFeedItem.setCreatedTime( eventInterest.getCreatedTime() );
+
+            feedItemList.add( interestedFriendFeedItem );
+        }
+
+        return feedItemList;
+    }
+
+    public List<InviteFriendPageItem> loadInviteFriendPage( Long confirmedEventId, long eventId, long userId, Long pageId, OffsetDateTime pageLastTimestampUtc, int limit, Connection conn ) throws SQLException
+    {
+        List<InviteFriendPageItem> feedItemList = new ArrayList<>();
+        Map<Long, EventInterest> interestMap = new LinkedHashMap<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT ei.user_id, ei.description, ei.created_time " );
+        sqlSb.append( "FROM event_interested ei " );
+        sqlSb.append( "WHERE ei.event_id = ? " );
+        sqlSb.append( "AND ei.user_id IN ( SELECT friend_id FROM friend WHERE user_id = ? ) " );
+        sqlSb.append( "OR ei.user_id  = ? " );
+        if( pageId != null && pageLastTimestampUtc != null )
+        {
+            sqlSb.append( "AND ( ei.created_time, ei.user_id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY ei.created_time DESC, ei.user_id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int pCount = 1;
+            ps.setLong( pCount++, eventId );
+            ps.setLong( pCount++, userId );
+            ps.setLong( pCount++, userId );
+
+            if( pageId != null && pageLastTimestampUtc != null )
+            {
+                ps.setObject( pCount++, pageLastTimestampUtc );
+                ps.setLong( pCount++, pageId );
+            }
+
+            ps.setInt( pCount++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    Long interestedUserId = rs.getLong( col++ );
+                    String description = rs.getString( col++ );
+                    OffsetDateTime createdDt = rs.getObject( col++, OffsetDateTime.class );
+
+                    EventInterest eventInterest = new EventInterest( eventId, interestedUserId, description );
+                    eventInterest.setCreatedTime( createdDt );
+
+                    interestMap.put( interestedUserId, eventInterest );
+                }
+
+            }
+        }
+
+        // Get interested friend ids
+        Set<Long> interestedFriendIdList = interestMap.keySet();
+
+        // Get interested friend details
+        Map<Long, BasicProfile> interestedUserProfileMap = getUserProfileByList( interestedFriendIdList, conn );
+        Map<Long, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( interestedFriendIdList, conn );
+
+        // Get friend visibility matrix for current user_profile
+        Map<Long, List<Long>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
+        List<Integer> requestedFriendList = getVisibilityRequestedByUser( eventId, userId, conn );
+
+        //Load current user_profile details
+        UserProfile currUser = getCompleteUserProfileById( userId, conn );
+        List<CurrentActivity> currUserRecentCurrentActivityHistory = userActivityHistoryMap.containsKey( userId ) ? userActivityHistoryMap.get(  userId ) : new ArrayList<>();
+
+        Map<Long, EventInvited> eventInvitedMap = getEventInvited( confirmedEventId, conn );
+
+        for ( Long interestedFriendId : interestedUserProfileMap.keySet() )
+        {
+            BasicProfile friendProfile = interestedUserProfileMap.get( interestedFriendId );
+            EventInterest eventInterest = interestMap.get( interestedFriendId );
+            List<CurrentActivity> recentCurrentActivityList = userActivityHistoryMap.get( interestedFriendId );
+
+            String relationship = null;
+            boolean isPeekSent = false;
+            boolean isPeekBack = false;
+            boolean isInvited = true;
+
+            if( interestedFriendId != userId )
+            {
+                // Remove identifying details from non-visible friends
+
+                List<Long> visibleToFriendList = visibilityMap.containsKey( interestedFriendId ) ? visibilityMap.get( interestedFriendId ) : new ArrayList<>();
+                List<Long> visibleToCurrUserList = visibilityMap.containsKey( userId ) ? visibilityMap.get( userId ) : new ArrayList<>();
+
+                if ( !visibleToCurrUserList.contains( interestedFriendId )  )
+                {
+                    friendProfile.setDisplayName( null );
+                }
+                if ( !visibleToCurrUserList.contains( interestedFriendId ) && visibleToFriendList.contains( userId )  )
+                {
+                    isPeekSent = true;
+                }
+                if ( visibleToCurrUserList.contains( interestedFriendId ) && !visibleToFriendList.contains( userId )  )
+                {
+                    isPeekBack = true;
+                }
+
+                //Determine relationship
+                boolean isRecentlyMet = false;
+                for ( CurrentActivity currentActivity : recentCurrentActivityList )
+                {
+                    for ( CurrentActivity currUserCurrentActivity : currUserRecentCurrentActivityHistory )
+                    {
+                        if ( currentActivity.getEventId() == currUserCurrentActivity.getEventId() )
+                        {
+                            isRecentlyMet = true;
+                            break;
+                        }
+                    }
+                }
+
+                if ( isRecentlyMet )
+                {
+                    relationship = "Interacted recently";
+                }
+
+                if( !eventInvitedMap.containsKey( interestedFriendId ) )
+                {
+                    isInvited = false;
+                }
+            }
+
+            InviteFriendPageItem interestedFriendFeedItem = new InviteFriendPageItem();
+            interestedFriendFeedItem.setUser( friendProfile );
+            interestedFriendFeedItem.setDescription( eventInterest.getDescription() );
+            interestedFriendFeedItem.setDistance( "nearby" );
+            interestedFriendFeedItem.setRelationship( relationship );
+            interestedFriendFeedItem.setPeekSent( isPeekSent );
+            interestedFriendFeedItem.setPeekBack( isPeekBack );
+            interestedFriendFeedItem.setInvited( isInvited );
+            interestedFriendFeedItem.setCreatedTime( eventInterest.getCreatedTime() );
+
+            feedItemList.add( interestedFriendFeedItem );
+        }
+
+        return feedItemList;
+    }
+
+    public List<InvitedUser> loadInvitedPage( long eventId, long userId, Boolean pageId, Long pageUserId, int limit, Connection conn ) throws SQLException
+    {
+        List<InvitedUser> feedItemList = new ArrayList<>();
+        Map<Long, EventInvited> invitedMap = new LinkedHashMap<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT ei.user_id, ei.is_confirmed " );
+        sqlSb.append( "FROM event_participant ei " );
+        sqlSb.append( "WHERE ei.event_id = ? " );
+        if( pageId != null && pageUserId != null )
+        {
+            sqlSb.append( "AND ( ei.is_confirmed, ei.user_id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY ei.is_confirmed DESC, ei.user_id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int pCount = 1;
+            ps.setLong( pCount++, eventId );
+
+            if( pageId != null && pageUserId != null )
+            {
+                ps.setBoolean( pCount++, pageId );
+                ps.setLong( pCount++, pageUserId );
+            }
+
+            ps.setInt( pCount++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    Long invitedUserId = rs.getLong( col++ );
+                    boolean isConfirmed = rs.getBoolean( col++ );
+
+                    EventInvited eventInvited = new EventInvited();
+                    eventInvited.setEventId( eventId );
+                    eventInvited.setUserId( invitedUserId );
+                    eventInvited.setConfirmed( isConfirmed );
+
+                    invitedMap.put( invitedUserId, eventInvited );
+                }
+
+            }
+        }
+
+//        Set<Long> friendIdList = getFriendIdList( userId, conn );
+        Map<Long, BasicProfile> userProfileMap = getUserProfileByList( invitedMap.keySet(), conn );
+        Map<Long, List<Long>> visibilityMap = getInterestedVisibilityMatrix( eventId, conn );
+//        List<Integer> requestedFriendList = getVisibilityRequestedByUser( eventId, userId, conn );
+//        Map<Long, List<CurrentActivity>> userActivityHistoryMap = getRecentUserActivityHistory( invitedMap.keySet(), conn );
+//        UserProfile currUser = getCompleteUserProfileById( userId, conn );
+//        List<CurrentActivity> currUserRecentCurrentActivityHistory = getRecentUserActivityHistoryById( userId, conn );
+
+        for ( Long invitedId : invitedMap.keySet() )
+        {
+            EventInvited eventInvited = invitedMap.get( invitedId );
+            BasicProfile userProfile = userProfileMap.get( invitedId );
+
+            // Update invited user_profile visibility
+            if ( !eventInvited.isConfirmed() )
+            {
+                List<Long> visibleToFriendList = visibilityMap.containsKey( invitedId ) ? visibilityMap.get( invitedId ) : new ArrayList<>();
+                List<Long> visibleToCurrUserList = visibilityMap.containsKey( userId ) ? visibilityMap.get( userId ) : new ArrayList<>();
+
+                if ( !visibleToCurrUserList.contains( invitedId )  )
+                {
+                    userProfile.setDisplayName( null );
+                }
+            }
+
+            InvitedUser invitedUser = new InvitedUser();
+            invitedUser.setUser( userProfile );
+            invitedUser.setUserId( userProfile.getUserId() );
+            invitedUser.setConfirmed( eventInvited.isConfirmed() );
+//            invitedUser.setFriend( isFriend );
+//            invitedUser.setRelationship( relationship );
+//            invitedUser.setDistance( distance );
+//            invitedUser.setVisibilityRequested( requestedFriendList.contains( invitedId ) );
+
+            feedItemList.add( invitedUser );
+        }
+
+        return feedItemList;
+    }
+
+    public List<ActivityHistoryFeedItem> loadFriendActivityPage( long userId, Long pageId, OffsetDateTime pageTimestampUtc, int limit, Connection conn ) throws SQLException
+    {
+        List<ActivityHistoryFeedItem> feedItemList = new ArrayList<>();
+
+        Map<Long, CurrentActivity> activityMap = new LinkedHashMap<>();
+
+        StringBuilder sqlSb = new StringBuilder( "SELECT " +
+                "uah.user_id, " +
+                "uah.event_id, " +
+                "uah.updated_time " );
+        sqlSb.append( "FROM user_activity_history uah " );
+        sqlSb.append( "WHERE uah.user_id = ? " );
+        if( pageId != null && pageTimestampUtc != null )
+        {
+            sqlSb.append( "AND ( uah.updated_time, uah.event_id ) < ( ?, ? ) " );
+        }
+        sqlSb.append( "ORDER BY uah.updated_time DESC, uah.event_id DESC " );
+        sqlSb.append( "LIMIT ? " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( limit );
+
+            int pCount = 1;
+            ps.setLong( pCount++, userId );
+
+            if( pageId != null && pageTimestampUtc != null )
+            {
+                ps.setObject( pCount++, pageTimestampUtc );
+                ps.setLong( pCount++, pageId );
+            }
+
+            ps.setInt( pCount++, limit );
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                //position result to first
+                while ( rs.next() )
+                {
+                    CurrentActivity currentActivity = new CurrentActivity();
+                    currentActivity.load( rs );
+
+                    activityMap.put( currentActivity.getEventId(), currentActivity );
+                }
+
+            }
+        }
+
+        Set<Long> eventIdList = activityMap.keySet();
+        Map<Long, ConfirmedEvent> eventMap = loadConfirmedEventByIdList( eventIdList, conn );
+        Set<Long> friendIdList = getFriendIdList( userId, conn );
+
+        for ( Long eventId : activityMap.keySet() )
+        {
+            CurrentActivity activity = activityMap.get( eventId );
+            ConfirmedEvent event = eventMap.get( eventId );
+
+            Map<Long, EventInvited> invitedMap = getEventInvited( eventId, conn );
+
+            Map<Long, EventJoinRequest> eventJoinRequestMap = getEventJoinRequestsByConfirmedEventId( eventId, conn );
+            int activeCount = getEventActiveCount( eventId, conn );
+
+            boolean isInvited = invitedMap.containsKey( userId );
+            boolean isJoinRequested = eventJoinRequestMap.containsKey( userId );
+            boolean isParticipating = false;
+            Set<Long> confirmedParticipantIdList = invitedMap.values().stream().filter( EventInvited::isConfirmed ).map( EventInvited::getUserId ).collect( Collectors.toSet());
+            Map<Long, BasicProfile> confirmedParticipantMap = getUserProfileByList( confirmedParticipantIdList, conn );
+
+            if ( isInvited )
+            {
+                isParticipating = invitedMap.get( userId ).isConfirmed();
+            }
+
+            event.setParticipantCount( confirmedParticipantIdList.size() );
+
+            ActivityHistoryFeedItem feedItem = new ActivityHistoryFeedItem();
+            feedItem.setEvent( event );
+            feedItem.setActiveCount( activeCount );
+            feedItem.setInvited( isInvited );
+            feedItem.setParticipant( isParticipating );
+            feedItem.setCreatorFriend( friendIdList.contains( event.getCreatorId() ) );
+            feedItem.setJoinRequested( isJoinRequested );
+            feedItem.setActiveTime( activity.getUpdatedTime() );
+            feedItem.setConfirmedParticipantList( new ArrayList<>( confirmedParticipantMap.values() ) );
+
+            feedItemList.add( feedItem );
+        }
+
+
+        return feedItemList;
+    }
+
+    public Map<Long, EventInterest> loadEventInterested( long eventId, Connection conn )
+    {
+        Map<Long, EventInterest> interestMap = new HashMap<>();
 
         StringBuilder friendSql = new StringBuilder( "SELECT ei.user_id, ei.description FROM event_interested ei WHERE ei.event_id = ?" );
 
@@ -4649,7 +5945,7 @@ public class DBResource
                 while ( rs.next() )
                 {
                     int col = 1;
-                    int userId = rs.getInt( col++ );
+                    Long userId = rs.getLong( col++ );
                     String description = rs.getString( col++ );
 
                     EventInterest eventInterest = new EventInterest( eventId, userId, description );
@@ -4672,72 +5968,7 @@ public class DBResource
         return interestMap;
     }
 
-
-    public void updateFriendList()
-    {
-        // Check if need to update friends list
-
-            /*
-            String checkSql = "SELECT u.last_checked_friends FROM user_profile u WHERE u.facebook_id = ?";
-
-            Timestamp lastCheckedFriends = null;
-
-            try ( PreparedStatement ps = conn.prepareStatement( checkSql ) )
-            {
-
-                ps.setFetchSize( 1000 );
-                ps.setString( 1, userId );
-
-                try ( ResultSet rs = ps.executeQuery() )
-                {
-                    while ( rs.next() )
-                    {
-                        lastCheckedFriends = rs.getTimestamp( 1 );
-                    }
-
-                }
-                catch ( SQLException e )
-                {
-                    e.printStackTrace();
-                    return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-                }
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-                return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-            }
-
-            if ( lastCheckedFriends != null )
-            {
-                long currentTimestamp = System.currentTimeMillis();
-
-                long diffMinutes = (currentTimestamp - lastCheckedFriends.getTime())/ (60 * 1000);
-
-                if ( diffMinutes > 60 )
-                {
-                    // update friends from facebook
-                }
-
-            }*/
-
-        // Update last checked friends timestamp
-
-                /*try ( PreparedStatement ps = conn.prepareStatement( "UPDATE user_profile SET last_checked_friends = NOW()" ) )
-                {
-
-                    ps.setFetchSize( 1000 );
-                    ps.executeUpdate();
-
-                }
-                catch ( SQLException e )
-                {
-                    e.printStackTrace();
-                    return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
-                }*/
-    }
-
-    public HttpEntity<BasicResponse> updateUserLocation( UserLocation userLocation, int userId )
+    public HttpEntity<BasicResponse> updateUserLocation( UserLocation userLocation, Long userId )
     {
         UserProfile updatedUser;
         
@@ -4754,7 +5985,7 @@ public class DBResource
         return new HttpEntity<>( new BasicResponse( updatedUser ) );
     }
 
-    public UserProfile updateUserLocation( UserLocation userLocation, int userId, Connection conn )
+    public UserProfile updateUserLocation( UserLocation userLocation, Long userId, Connection conn ) throws SQLException
     {
         try ( PreparedStatement ps = conn.prepareStatement( "UPDATE user_profile SET " +
                 " longitude = ?," +
@@ -4779,7 +6010,41 @@ public class DBResource
             e.printStackTrace();
         }
 
-        return getUserProfileById( userId, conn );
+        return getCompleteUserProfileById( userId, conn );
+    }
+
+    public HttpEntity<BasicResponse> updateUserTimezone( String timezone, Long userId )
+    {
+        UserProfile updatedUser;
+
+        try ( Connection conn = getConnection() )
+        {
+            try ( PreparedStatement ps = conn.prepareStatement( "UPDATE user_profile SET " +
+                    " time_zone = ? " +
+                    " WHERE id = ?" ) )
+            {
+
+                ps.setFetchSize( 1000 );
+
+                int count = 1;
+
+                ps.setString( count++, timezone );
+                ps.setLong( count++, userId );
+
+                //execute query
+                ps.executeUpdate();
+
+            }
+
+            updatedUser = getCompleteUserProfileById( userId, conn );
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( e.getMessage(), BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( updatedUser ) );
     }
 
 }
