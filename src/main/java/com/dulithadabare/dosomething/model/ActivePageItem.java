@@ -50,4 +50,10 @@ public class ActivePageItem
     {
         isFriend = friend;
     }
+
+    @JsonProperty("timestampUtc")
+    public long getTimestampUtc()
+    {
+        return this.activeTime != null ? this.activeTime.toInstant().toEpochMilli() : 0;
+    }
 }

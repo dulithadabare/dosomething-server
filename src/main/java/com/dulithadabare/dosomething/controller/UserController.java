@@ -15,13 +15,13 @@ public class UserController
 
     @CrossOrigin
     @PostMapping( "" )
-    public HttpEntity<BasicResponse> createAnonymousUser( @AuthenticationPrincipal Jwt jwt, @RequestHeader( "X-USER-TIMEZONE" ) String userTimeZone )
+    public HttpEntity<BasicResponse> createAnonymousUser( @AuthenticationPrincipal Jwt jwt )
     {
 
         UserProfile authUser = new UserProfile();
         authUser.loadAnonymousUserProfileFromJwt( jwt );
 
-        return dbResource.createAnonymousUser( authUser, userTimeZone );
+        return dbResource.createAnonymousUser( authUser, "Asia/Colombo" );
     }
 
     @CrossOrigin

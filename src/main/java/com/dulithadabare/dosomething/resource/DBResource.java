@@ -181,11 +181,12 @@ public class DBResource
 //            PictureResponse pictureResponse = facebookResource.getProfilePicture( userProfile.getFacebookId(), facebookUserToken );
 
                 String createSql = "INSERT INTO user_profile (" +
-                        " firebase_uid," +
-                        " facebook_id," +
-                        " name ," +
-                        " email" +
-                        " ) VALUES ( ?, ?, ?, ? ) " +
+                        " firebase_uid, " +
+                        " facebook_id, " +
+                        " name, " +
+                        " email, " +
+                        " time_zone " +
+                        " ) VALUES ( ?, ?, ?, ?, ? ) " +
                         "ON CONFLICT (firebase_uid) DO UPDATE SET facebook_id = ?, name = ?, email = ? RETURNING id";
 
                 try ( PreparedStatement ps = conn.prepareStatement( createSql ) )
@@ -198,6 +199,7 @@ public class DBResource
                     ps.setString( count++, publicProfile.getId() );
                     ps.setString( count++, publicProfile.getName() );
                     ps.setString( count++, publicProfile.getEmail() );
+                    ps.setString( count++, "Asia/Colombo" );
 
                     ps.setString( count++, publicProfile.getId() );
                     ps.setString( count++, publicProfile.getName() );
@@ -219,12 +221,13 @@ public class DBResource
                     }
                 }
 
+                //TODO user_friends permission is broken for test users
                 // Get User Friends from Facebook
-                Map<String, String> facebookFriendList = facebookResource.getFacebookFriends( userProfile.getFacebookId(), facebookUserToken );
+//                Map<String, String> facebookFriendList = facebookResource.getFacebookFriends( userProfile.getFacebookId(), facebookUserToken );
 
                 // Get friend user ids using the friend facebook ID
                 Map<String, Integer> facebookIdUserIdMap = new HashMap<>();
-
+/*
                 StringBuilder friendSQLSb = new StringBuilder( "SELECT u.id, u.facebook_id FROM user_profile u WHERE  u.facebook_id IN (" );
 
                 String delim = " ";
@@ -265,7 +268,7 @@ public class DBResource
                         }
 
                     }
-                }
+                }*/
 
                 if( !facebookIdUserIdMap.isEmpty() )
                 {
@@ -931,7 +934,7 @@ public class DBResource
 
                     ps.setLong( count++, userId );
                     ps.setString( count++, event.getDescription() );
-                    ps.setInt( count++, event.getVisibilityPreference() );
+                    ps.setInt( count++, 0 ); //TODO remove visibility preference
 
                     try ( ResultSet rs = ps.executeQuery() )
                     {
@@ -2989,15 +2992,24 @@ public class DBResource
         ObjectMapper mapper = new ObjectMapper();
 
         Set<Long> eventIdSet = new HashSet<>();;
+        Set<Long> confirmedEventIdSet = new HashSet<>();;
         Set<Long> userIdSet = new HashSet<>();
 
         for ( EventNotification eventNotification : eventNotificationList )
         {
-            eventIdSet.add( eventNotification.getEventId() );
+            if( eventNotification.getType() == AppNotificationType.EVENT_INTEREST
+                    || eventNotification.getType() == AppNotificationType.EVENT_PEEK
+            )
+            {
+                eventIdSet.add( eventNotification.getEventId() );
+            } else if ( eventNotification.getType() != AppNotificationType.NONE ) {
+                confirmedEventIdSet.add( eventNotification.getEventId() );
+            }
             userIdSet.addAll( eventNotification.getData() );
         }
 
         Map<Long, Event> eventMap = loadEventByIdList( eventIdSet, conn );
+        Map<Long, ConfirmedEvent> confirmedEventMap = loadConfirmedEventByIdList( confirmedEventIdSet, conn );
         Map<Long, BasicProfile> userProfileMap = getUserProfileByList( userIdSet, conn );
 
         for ( EventNotification eventNotification : eventNotificationList )
@@ -3059,7 +3071,7 @@ public class DBResource
                 String payload = mapper.writeValueAsString( eventNotification );
 
                 BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
-                Event event = eventMap.get( eventNotification.getEventId() );
+                Event event = confirmedEventMap.get( eventNotification.getEventId() );
                 message = friendProfile.getDisplayName() + " is inviting you to the event " + event.getDescription();
 
                 AppNotification notification = new AppNotification();
@@ -3145,7 +3157,7 @@ public class DBResource
                 String message;
                 String payload = mapper.writeValueAsString( eventNotification );
 
-                Event event = eventMap.get( eventNotification.getEventId() );
+                Event event = confirmedEventMap.get( eventNotification.getEventId() );
                 message = event.getDescription() + " has started";
 
                 AppNotification notification = new AppNotification();
