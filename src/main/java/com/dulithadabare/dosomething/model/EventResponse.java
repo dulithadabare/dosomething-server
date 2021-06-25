@@ -1,18 +1,10 @@
 package com.dulithadabare.dosomething.model;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class EventResponse
 {
     private Event event;
-    private ConfirmedEvent confirmedEvent;
-    private int interestedFriendCount;
     private boolean isInterested;
-    private boolean isInvited;
-    private boolean isParticipant;
-    private boolean isCreatorFriend;
-    private boolean isJoinRequested;
+    private boolean isActive;
 
     public Event getEvent()
     {
@@ -22,26 +14,6 @@ public class EventResponse
     public void setEvent( Event event )
     {
         this.event = event;
-    }
-
-    public ConfirmedEvent getConfirmedEvent()
-    {
-        return confirmedEvent;
-    }
-
-    public void setConfirmedEvent( ConfirmedEvent confirmedEvent )
-    {
-        this.confirmedEvent = confirmedEvent;
-    }
-
-    public int getInterestedFriendCount()
-    {
-        return interestedFriendCount;
-    }
-
-    public void setInterestedFriendCount( int interestedFriendCount )
-    {
-        this.interestedFriendCount = interestedFriendCount;
     }
 
     public boolean isInterested()
@@ -54,43 +26,13 @@ public class EventResponse
         isInterested = interested;
     }
 
-    public boolean isInvited()
+    public boolean isActive()
     {
-        return isInvited;
+        return isActive;
     }
 
-    public void setInvited( boolean invited )
+    public void setActive( boolean active )
     {
-        isInvited = invited;
-    }
-
-    public boolean isParticipant()
-    {
-        return isParticipant;
-    }
-
-    public void setParticipant( boolean participant )
-    {
-        isParticipant = participant;
-    }
-
-    public boolean isCreatorFriend()
-    {
-        return isCreatorFriend;
-    }
-
-    public void setCreatorFriend( boolean creatorFriend )
-    {
-        isCreatorFriend = creatorFriend;
-    }
-
-    public boolean isJoinRequested()
-    {
-        return isJoinRequested;
-    }
-
-    public void setJoinRequested( boolean joinRequested )
-    {
-        isJoinRequested = joinRequested;
+        isActive = active;
     }
 }

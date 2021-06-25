@@ -14,34 +14,20 @@ public class UserController
     final DBResource dbResource = new DBResource();
 
     @CrossOrigin
-    @PostMapping( "" )
-    public HttpEntity<BasicResponse> createAnonymousUser( @AuthenticationPrincipal Jwt jwt )
-    {
-
-        UserProfile authUser = new UserProfile();
-        authUser.loadAnonymousUserProfileFromJwt( jwt );
-
-        return dbResource.createAnonymousUser( authUser, "Asia/Colombo" );
-    }
-
-    @CrossOrigin
-    @PostMapping( "/facebook" )
-    public HttpEntity<BasicResponse> linkWithFacebook( @RequestParam String accessToken, @AuthenticationPrincipal Jwt jwt )
-    {
-        UserProfile authUser = new UserProfile();
-        authUser.loadFacebookUserProfileFromJwt( jwt );
-
-        return dbResource.linkWithFacebook( accessToken, authUser );
-    }
-
-    @CrossOrigin
     @GetMapping( "" )
     public HttpEntity<BasicResponse> getUser( @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile authUser = new UserProfile();
-        authUser.loadAnonymousUserProfileFromJwt( jwt );
+        authUser.loadUserProfileFromJwt( jwt );
 
         return dbResource.getCompleteUserProfileById( authUser.getUserId() );
+    }
+
+    @CrossOrigin
+    @PostMapping( "" )
+    public HttpEntity<BasicResponse> createUser( @RequestBody UserProfile userProfile, @AuthenticationPrincipal Jwt jwt )
+    {
+        return dbResource.createUser( userProfile );
     }
 
     @CrossOrigin
@@ -49,45 +35,15 @@ public class UserController
     public HttpEntity<BasicResponse> getCurrentActivity( @AuthenticationPrincipal Jwt jwt )
     {
         UserProfile authUser = new UserProfile();
-        authUser.loadAnonymousUserProfileFromJwt( jwt );
+        authUser.loadUserProfileFromJwt( jwt );
 
         return dbResource.getCurrentActivityByUserId( authUser.getUserId() );
     }
 
     @CrossOrigin
-    @PutMapping( "/location" )
-    public HttpEntity<BasicResponse> updateUserLocation( @RequestBody UserLocation userLocation, @AuthenticationPrincipal Jwt jwt )
-    {
-        UserProfile authUser = new UserProfile();
-        authUser.loadUserProfileFromJwt( jwt );
-
-        if ( authUser.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.updateUserLocation( userLocation, authUser.getUserId() );
-    }
-
-    @CrossOrigin
-    @PutMapping( "/timezone" )
-    public HttpEntity<BasicResponse> updateUserTimeZone( @RequestParam( name = "timezone" ) String timezone, @AuthenticationPrincipal Jwt jwt )
-    {
-        UserProfile authUser = new UserProfile();
-        authUser.loadUserProfileFromJwt( jwt );
-
-        if ( authUser.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.updateUserTimezone( timezone, authUser.getUserId() );
-    }
-
-    @CrossOrigin
     @GetMapping( "/friends" )
     public HttpEntity<BasicResponse> getFriendsForUser( @AuthenticationPrincipal Jwt jwt,
-                                                             @RequestParam( name = "pageKey", required = false ) String pageKey
+                                                        @RequestParam( name = "pageKey", required = false ) String pageKey
     )
     {
         UserProfile userProfile = new UserProfile();
@@ -101,88 +57,4 @@ public class UserController
         return dbResource.getFriendList( userProfile.getUserId(), pageKey );
     }
 
-
-    @CrossOrigin
-    @GetMapping( "/friends/{friendId}" )
-    public HttpEntity<BasicResponse> getFriendActivity( @PathVariable Long friendId,
-                                                        @AuthenticationPrincipal Jwt jwt,
-                                                        @RequestParam( name = "pageKey", required = false ) String pageKey
-    )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        if ( userProfile.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.getFriendActivityList( userProfile.getUserId(), pageKey );
-    }
-
-    @CrossOrigin
-    @GetMapping( "/events" )
-    public HttpEntity<BasicResponse> getEventsCreatedByUser( @AuthenticationPrincipal Jwt jwt,
-                                                             @RequestParam( name = "pageKey", required = false ) String pageKey
-    )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        if ( userProfile.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.getEventsForUser( userProfile.getUserId(), pageKey );
-    }
-
-    @CrossOrigin
-    @GetMapping( "/confirmed-events" )
-    public HttpEntity<BasicResponse> getConfirmedEventsCreatedByUser( @AuthenticationPrincipal Jwt jwt,
-                                                             @RequestParam( name = "pageKey", required = false ) String pageKey
-    )
-    {
-        UserProfile userProfile = new UserProfile();
-        userProfile.loadUserProfileFromJwt( jwt );
-
-        if ( userProfile.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.getConfirmedEventsForUser( userProfile.getUserId(), pageKey );
-    }
-
-    @CrossOrigin
-    @GetMapping( "/visibility-requests" )
-    public HttpEntity<BasicResponse> getVisibilityRequests( @AuthenticationPrincipal Jwt jwt )
-    {
-        UserProfile authUser = new UserProfile();
-        authUser.loadUserProfileFromJwt( jwt );
-
-        if ( authUser.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.getVisibilityRequests( authUser.getUserId() );
-    }
-
-    @CrossOrigin
-    @GetMapping( "/notifications" )
-    public HttpEntity<BasicResponse> getAppNotifications( @AuthenticationPrincipal Jwt jwt,
-                                                          @RequestParam( name = "pageKey", required = false ) String pageKey
-    )
-    {
-        UserProfile authUser = new UserProfile();
-        authUser.loadUserProfileFromJwt( jwt );
-
-        if ( authUser.getUserId() < 0 )
-        {
-            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
-        }
-
-        return dbResource.getAppNotifications( authUser.getUserId(), pageKey );
-    }
 }

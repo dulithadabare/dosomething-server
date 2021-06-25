@@ -4,12 +4,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.OffsetDateTime;
 
-public class InterestedFriendFeedItem
+public class InterestedFriendPageItem
 {
     private BasicProfile user;
-    private String description;
-    private String distance;
-    private String relationship;
     private boolean isPeekSent;
     private boolean isPeekBack;
     private OffsetDateTime createdTime;
@@ -22,36 +19,6 @@ public class InterestedFriendFeedItem
     public void setUser( BasicProfile user )
     {
         this.user = user;
-    }
-
-    public String getDescription()
-    {
-        return description;
-    }
-
-    public void setDescription( String description )
-    {
-        this.description = description;
-    }
-
-    public String getDistance()
-    {
-        return distance;
-    }
-
-    public void setDistance( String distance )
-    {
-        this.distance = distance;
-    }
-
-    public String getRelationship()
-    {
-        return relationship;
-    }
-
-    public void setRelationship( String relationship )
-    {
-        this.relationship = relationship;
     }
 
     public boolean isPeekSent()

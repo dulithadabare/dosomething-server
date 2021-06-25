@@ -5,16 +5,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-public class HappeningFeedItem extends ActiveFeedItem
+public class HappeningFeedItem
 {
     private ConfirmedEvent event;
-    private int activeFriendCount;
-    private boolean isInvited;
-    private boolean isParticipant;
-    private boolean isCreatorFriend;
-    private boolean isJoinRequested;
+    private int activeCount;
     private OffsetDateTime startTime;
-    private List<BasicProfile> confirmedParticipantList;
+    private List<BasicProfile> activeFriendList;
 
     public ConfirmedEvent getEvent()
     {
@@ -26,54 +22,14 @@ public class HappeningFeedItem extends ActiveFeedItem
         this.event = event;
     }
 
-    public int getActiveFriendCount()
+    public int getActiveCount()
     {
-        return activeFriendCount;
+        return activeCount;
     }
 
-    public void setActiveFriendCount( int activeFriendCount )
+    public void setActiveCount( int activeCount )
     {
-        this.activeFriendCount = activeFriendCount;
-    }
-
-    public boolean isInvited()
-    {
-        return isInvited;
-    }
-
-    public void setInvited( boolean invited )
-    {
-        isInvited = invited;
-    }
-
-    public boolean isParticipant()
-    {
-        return isParticipant;
-    }
-
-    public void setParticipant( boolean participant )
-    {
-        isParticipant = participant;
-    }
-
-    public boolean isCreatorFriend()
-    {
-        return isCreatorFriend;
-    }
-
-    public void setCreatorFriend( boolean creatorFriend )
-    {
-        isCreatorFriend = creatorFriend;
-    }
-
-    public boolean isJoinRequested()
-    {
-        return isJoinRequested;
-    }
-
-    public void setJoinRequested( boolean joinRequested )
-    {
-        isJoinRequested = joinRequested;
+        this.activeCount = activeCount;
     }
 
     public OffsetDateTime getStartTime()
@@ -86,14 +42,14 @@ public class HappeningFeedItem extends ActiveFeedItem
         this.startTime = startTime;
     }
 
-    public List<BasicProfile> getConfirmedParticipantList()
+    public List<BasicProfile> getActiveFriendList()
     {
-        return confirmedParticipantList;
+        return activeFriendList;
     }
 
-    public void setConfirmedParticipantList( List<BasicProfile> confirmedParticipantList )
+    public void setActiveFriendList( List<BasicProfile> activeFriendList )
     {
-        this.confirmedParticipantList = confirmedParticipantList;
+        this.activeFriendList = activeFriendList;
     }
 
     @JsonProperty("timestampUtc")
