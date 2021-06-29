@@ -979,7 +979,6 @@ public class DBResource
         ConfirmedEvent event = loadConfirmedEventById( confirmedEventId, conn );
 
         eventResponse.setEvent( event );
-        eventResponse.setActive( currentActivity.getEventId() == event.getId() );
 
         return eventResponse;
     }

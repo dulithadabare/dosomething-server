@@ -4,7 +4,6 @@ public class EventResponse
 {
     private Event event;
     private boolean isInterested;
-    private boolean isActive;
 
     public Event getEvent()
     {
@@ -24,15 +23,5 @@ public class EventResponse
     public void setInterested( boolean interested )
     {
         isInterested = interested;
-    }
-
-    public boolean isActive()
-    {
-        return isActive;
-    }
-
-    public void setActive( boolean active )
-    {
-        isActive = active;
     }
 }
