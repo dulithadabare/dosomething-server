@@ -31,6 +31,22 @@ public class UserController
     }
 
     @CrossOrigin
+    @PostMapping( "/tokens" )
+    public HttpEntity<BasicResponse> saveUserToken(  @RequestParam( name = "token" ) String token,
+                                                     @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.addUserToken( userProfile.getUserId(), token );
+    }
+
+    @CrossOrigin
     @GetMapping( "/current-activity" )
     public HttpEntity<BasicResponse> getCurrentActivity( @AuthenticationPrincipal Jwt jwt )
     {
@@ -57,4 +73,19 @@ public class UserController
         return dbResource.getFriendList( userProfile.getUserId(), pageKey );
     }
 
+    @CrossOrigin
+    @PostMapping( "/logout" )
+    public HttpEntity<BasicResponse> logout( @RequestParam( name = "token" ) String token,
+                                                     @AuthenticationPrincipal Jwt jwt )
+    {
+        UserProfile userProfile = new UserProfile();
+        userProfile.loadUserProfileFromJwt( jwt );
+
+        if ( userProfile.getUserId() < 0 )
+        {
+            return new HttpEntity<>( new BasicResponse( "Invalid User", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return dbResource.logout( userProfile, token );
+    }
 }

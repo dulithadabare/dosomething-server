@@ -6,6 +6,10 @@ import com.dulithadabare.dosomething.model.*;
 import com.dulithadabare.dosomething.util.AppException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.firebase.messaging.FirebaseMessagingException;
+import com.google.firebase.messaging.MulticastMessage;
+import com.google.firebase.messaging.Notification;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 
 import java.io.IOException;
@@ -19,6 +23,9 @@ import java.util.stream.Collectors;
 public class DBResource
 {
     FacebookResource facebookResource = new FacebookResource();
+
+    @Autowired
+    FirebaseCloudMessaging firebaseCloudMessaging = new FirebaseCloudMessaging();
 
     private final String DB_URL = "jdbc:mariadb://localhost:3306/dosomething_db";
     private final String DB_USER = "demoroot";
@@ -361,6 +368,172 @@ public class DBResource
             ps.setLong( count++, eventId );
             ps.setLong( count++, eventCreatorId );
             ps.setLong( count++, userId );
+
+            //execute query
+            ps.executeUpdate();
+        }
+
+        sendInterestMessage( eventId, userId, conn );
+    }
+
+    public void sendInterestMessage( long eventId, long userId, Connection conn) throws SQLException
+    {
+        Set<Long> friendIdList = getFriendIdList( userId, conn );
+        Set<Long> interestedIdList = loadEventInterested( eventId, conn );
+        Set<Long> interestedFriendIdList = interestedIdList.stream().filter( friendIdList::contains ).collect( Collectors.toSet());
+        List<String> tokenList = getDeviceTokensByUserId( interestedFriendIdList, conn );
+        Event event = loadEventById( eventId, conn );
+
+        try
+        {
+            MulticastMessage message = MulticastMessage.builder()
+                    .setNotification( Notification.builder()
+                            .setTitle( "A friend liked your idea" )
+                            .setBody( event.getDescription() )
+                            .build() )
+//                    .putData("score", "850")
+//                    .putData("time", "2:45")
+                    .addAllTokens(tokenList)
+                    .build();
+
+            firebaseCloudMessaging.sendMultiMessage( message, tokenList );
+        }
+        catch ( FirebaseMessagingException e )
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public void sendPeekMessage( long eventId, long userId, long friendId, Connection conn) throws SQLException
+    {
+        Set<Long> friendIdList = new HashSet<>();
+        friendIdList.add( friendId );
+        List<String> tokenList = getDeviceTokensByUserId( friendIdList, conn );
+        BasicProfile currUserProfile = getUserProfileById( userId, conn );
+        Event event = loadEventById( eventId, conn );
+
+        try
+        {
+            MulticastMessage message = MulticastMessage.builder()
+                    .setNotification( Notification.builder()
+                            .setTitle( currUserProfile.getDisplayName() + " Peeked at you" )
+                            .setBody( event.getDescription() )
+                            .build() )
+                    .addAllTokens(tokenList)
+                    .build();
+
+            firebaseCloudMessaging.sendMultiMessage( message, tokenList );
+        }
+        catch ( FirebaseMessagingException e )
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public void sendInviteMessage( long confirmedEventId, Set<Long> invitedUserList, long userId, Connection conn ) throws SQLException
+    {
+        List<String> tokenList = getDeviceTokensByUserId( invitedUserList, conn );
+        BasicProfile currUserProfile = getUserProfileById( userId, conn );
+        Event event = loadConfirmedEventById( confirmedEventId, conn );
+
+        try
+        {
+            MulticastMessage message = MulticastMessage.builder()
+                    .setNotification( Notification.builder()
+                            .setTitle( currUserProfile.getDisplayName() + " invited you" )
+                            .setBody( event.getDescription() )
+                            .build() )
+                    .addAllTokens(tokenList)
+                    .build();
+
+            firebaseCloudMessaging.sendMultiMessage( message, tokenList );
+        }
+        catch ( FirebaseMessagingException e )
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public void sendJoinMessage( long confirmedEventId, long userId, Connection conn ) throws SQLException
+    {
+        Set<Long> friendIdList = getFriendIdList( userId, conn );
+        Set<Long> activeIdList = loadCurrentActivityByEventId( confirmedEventId, conn ).keySet();
+        Set<Long> activeFriendIdList = activeIdList.stream().filter( friendIdList::contains ).collect( Collectors.toSet());
+        List<String> tokenList = getDeviceTokensByUserId( activeFriendIdList, conn );
+        BasicProfile currUserProfile = getUserProfileById( userId, conn );
+        Event event = loadConfirmedEventById( confirmedEventId, conn );
+
+        try
+        {
+            MulticastMessage message = MulticastMessage.builder()
+                    .setNotification( Notification.builder()
+                            .setTitle( currUserProfile.getDisplayName() + " joined your event" )
+                            .setBody( event.getDescription() )
+                            .build() )
+                    .addAllTokens(tokenList)
+                    .build();
+
+            firebaseCloudMessaging.sendMultiMessage( message, tokenList );
+        }
+        catch ( FirebaseMessagingException e )
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public List<String> getDeviceTokensByUserId( Set<Long> userIdList, Connection conn) throws SQLException
+    {
+        List<String> tokenList = new ArrayList<>();
+
+        StringBuilder sqlSb =  new StringBuilder("SELECT DISTINCT token FROM device_token dt WHERE dt.user_id IN ( ");
+
+        String delim = "";
+
+        for ( Long userId : userIdList )
+        {
+            sqlSb.append( delim );
+            sqlSb.append( "?" );
+            delim = ", ";
+        }
+
+        sqlSb.append( " ) " );
+
+        try ( PreparedStatement ps = conn.prepareStatement( sqlSb.toString() ) )
+        {
+
+            ps.setFetchSize( 1000 );
+
+            int count = 1;
+
+            for ( Long userId : userIdList )
+            {
+                ps.setLong( count++, userId );
+            }
+
+            //execute query
+            try ( ResultSet rs = ps.executeQuery() )
+            {
+                while ( rs.next() )
+                {
+                    int col = 1;
+                    String token = rs.getString( col++ );
+
+                    tokenList.add( token );
+                }
+            }
+        }
+
+        return tokenList;
+    }
+
+    public void removeInvalidDeviceTokens( Long userId, String token, Connection conn ) throws SQLException
+    {
+        try ( PreparedStatement ps = conn.prepareStatement( "SELECT DISTINCT token FROM device_token dt WHERE dt.user_id = ? AND dt.token = ? " ) )
+        {
+            int count = 1;
+
+            ps.setLong( count++, userId );
+            ps.setString( count++, token );
 
             //execute query
             ps.executeUpdate();
@@ -773,6 +946,8 @@ public class DBResource
             //execute query
             ps.executeUpdate();
         }
+
+        sendPeekMessage( eventId, userId, friendId, conn );
     }
 
     public HttpEntity<BasicResponse> createConfirmedEvent( ConfirmedEvent confirmedEvent, Long userId )
@@ -913,6 +1088,8 @@ public class DBResource
             ps.executeUpdate();
 
         }
+
+        sendJoinMessage( confirmedEventId, userId, conn );
     }
 
 
@@ -952,6 +1129,8 @@ public class DBResource
 
             }
         }
+
+        sendInviteMessage( confirmedEventId, invitedUserList, eventCreatorId, conn );
     }
 
     public HttpEntity<BasicResponse> getConfirmedEventById( long eventId, Long userId )
@@ -1492,7 +1671,7 @@ public class DBResource
                 if ( friendIdList.size() == 1 )
                 {
                     BasicProfile friendProfile = userProfileMap.get( friendIdList.get( 0 ) );
-                    message = friendProfile.getDisplayName() + "joined your event";
+                    message = friendProfile.getDisplayName() + " joined your event";
                 }
                 else
                 {
@@ -2093,7 +2272,7 @@ public class DBResource
         return happeningFeedItemList;
     }
 
-    public Map<Long, CurrentActivity> loadCurrentActivityByEventId( Long userId, Connection conn ) throws SQLException
+    public Map<Long, CurrentActivity> loadCurrentActivityByEventId( Long eventId, Connection conn ) throws SQLException
     {
         Map<Long, CurrentActivity> activityMap = new HashMap<>();
 
@@ -2111,7 +2290,7 @@ public class DBResource
 
             int count = 1;
 
-            ps.setLong( count++, userId );
+            ps.setLong( count++, eventId );
 
             //execute query
             try ( ResultSet rs = ps.executeQuery() )
@@ -2246,8 +2425,7 @@ public class DBResource
             {
                 try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO user_profile ( firebase_uid, name, email ) VALUES ( ?, ?, ? ) RETURNING id" ) )
                 {
-
-                    ps.setFetchSize( 1000 );
+                    ps.setFetchSize( 1 );
 
                     int count = 1;
 
@@ -2290,6 +2468,71 @@ public class DBResource
         }
 
         return new HttpEntity<>( new BasicResponse( newUser ) );
+    }
+
+    public HttpEntity<BasicResponse> logout( UserProfile userProfile, String deviceToken )
+    {
+        try ( Connection conn = getConnection() )
+        {
+            conn.setAutoCommit( false );
+            try
+            {
+                removeInvalidDeviceTokens( userProfile.getUserId(), deviceToken, conn );
+            }
+            catch ( SQLException e )
+            {
+                conn.rollback();
+                conn.setAutoCommit( true );
+                throw e;
+            }
+
+            conn.commit();
+            conn.setAutoCommit( true );
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( "Error", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( userProfile.getUserId() ) );
+    }
+
+    public HttpEntity<BasicResponse> addUserToken( Long userId, String token )
+    {
+        try ( Connection conn = getConnection() )
+        {
+            conn.setAutoCommit( false );
+            try
+            {
+                try ( PreparedStatement ps = conn.prepareStatement( "INSERT INTO device_token ( user_id, token ) VALUES ( ?, ? ) ON CONFLICT DO NOTHING" ) )
+                {
+                    int count = 1;
+
+                    ps.setLong( count++, userId );
+                    ps.setString( count++, token );
+
+                    //execute query
+                    ps.executeUpdate();
+                }
+            }
+            catch ( SQLException e )
+            {
+                conn.rollback();
+                conn.setAutoCommit( true );
+                throw e;
+            }
+
+            conn.commit();
+            conn.setAutoCommit( true );
+        }
+        catch ( SQLException | URISyntaxException e )
+        {
+            e.printStackTrace();
+            return new HttpEntity<>( new BasicResponse( "Error", BasicResponse.STATUS_ERROR ) );
+        }
+
+        return new HttpEntity<>( new BasicResponse( userId ) );
     }
 
     @Deprecated
