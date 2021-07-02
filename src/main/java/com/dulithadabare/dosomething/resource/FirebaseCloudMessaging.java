@@ -46,35 +46,6 @@ public class FirebaseCloudMessaging
         }
     }
 
-    public void sendMessage( List<String> registrationTokens ) throws FirebaseMessagingException
-    {
-        MulticastMessage message = MulticastMessage.builder()
-                .setNotification( Notification.builder()
-                        .setTitle( "A friend liked your idea" )
-                        .setBody( "Pop name" )
-                        .build() )
-                .putData("score", "850")
-                .putData("time", "2:45")
-                .addAllTokens(registrationTokens)
-                .build();
-
-        BatchResponse response = FirebaseMessaging.getInstance().sendMulticast(message);
-        if (response.getFailureCount() > 0) {
-            List<SendResponse> responses = response.getResponses();
-            List<String> failedTokens = new ArrayList<>();
-            for (int i = 0; i < responses.size(); i++) {
-                if (!responses.get(i).isSuccessful()) {
-                    // The order of responses corresponds to the order of the registration tokens.
-                    failedTokens.add(registrationTokens.get(i));
-                }
-            }
-
-            System.out.println("List of tokens that caused failures: " + failedTokens);
-        }
-
-        System.out.println(response.getSuccessCount() + " messages were sent successfully");
-    }
-
     public void sendMultiMessage( MulticastMessage message, List<String> registrationTokens ) throws FirebaseMessagingException
     {
         BatchResponse response = FirebaseMessaging.getInstance().sendMulticast(message);

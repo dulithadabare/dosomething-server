@@ -388,8 +388,8 @@ public class DBResource
         {
             MulticastMessage message = MulticastMessage.builder()
                     .setNotification( Notification.builder()
-                            .setTitle( "A friend liked your idea" )
-                            .setBody( event.getDescription() )
+                            .setTitle( event.getDescription() )
+                            .setBody("A friend liked your idea" )
                             .build() )
 //                    .putData("score", "850")
 //                    .putData("time", "2:45")
@@ -416,8 +416,8 @@ public class DBResource
         {
             MulticastMessage message = MulticastMessage.builder()
                     .setNotification( Notification.builder()
-                            .setTitle( currUserProfile.getDisplayName() + " Peeked at you" )
-                            .setBody( event.getDescription() )
+                            .setTitle( event.getDescription() )
+                            .setBody( currUserProfile.getDisplayName() + " Peeked at you" )
                             .build() )
                     .addAllTokens(tokenList)
                     .build();
@@ -440,8 +440,8 @@ public class DBResource
         {
             MulticastMessage message = MulticastMessage.builder()
                     .setNotification( Notification.builder()
-                            .setTitle( currUserProfile.getDisplayName() + " invited you" )
-                            .setBody( event.getDescription() )
+                            .setTitle( event.getDescription() )
+                            .setBody(currUserProfile.getDisplayName() + " invited you" )
                             .build() )
                     .addAllTokens(tokenList)
                     .build();
@@ -467,8 +467,8 @@ public class DBResource
         {
             MulticastMessage message = MulticastMessage.builder()
                     .setNotification( Notification.builder()
-                            .setTitle( currUserProfile.getDisplayName() + " joined your event" )
-                            .setBody( event.getDescription() )
+                            .setTitle( event.getDescription() )
+                            .setBody( currUserProfile.getDisplayName() + " joined your event" )
                             .build() )
                     .addAllTokens(tokenList)
                     .build();
