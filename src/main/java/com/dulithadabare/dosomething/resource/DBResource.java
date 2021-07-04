@@ -528,7 +528,7 @@ public class DBResource
 
     public void removeInvalidDeviceTokens( Long userId, String token, Connection conn ) throws SQLException
     {
-        try ( PreparedStatement ps = conn.prepareStatement( "SELECT DISTINCT token FROM device_token dt WHERE dt.user_id = ? AND dt.token = ? " ) )
+        try ( PreparedStatement ps = conn.prepareStatement( "DELETE FROM device_token WHERE user_id = ? AND token = ? " ) )
         {
             int count = 1;
 
